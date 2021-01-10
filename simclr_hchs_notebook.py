@@ -61,7 +61,7 @@ with open(user_dataset_resized_path, 'rb') as f:
 
 
 # %%
-user_datasets[sample_key]
+# user_datasets[sample_key]
 
 # %% [markdown]
 # # Pre Processing
@@ -91,7 +91,7 @@ unit_conversion = scipy.constants.g
 
 # a fixed user-split
 
-with open(path_to_reduced_test_train_split_dict, 'rb') as f:
+with open(path_to_test_train_split_dict, 'rb') as f:
     test_train_user_dict = pickle.load(f)
 
 test_users = test_train_user_dict['test']
@@ -101,17 +101,17 @@ print(f'Test Numbers: {len(test_users)}, Train Numbers: {len(train_users)}')
 
 
 # %%
-# np_train, np_val, np_test = hchs_data_pre_processing.pre_process_dataset_composite(
-#     user_datasets=user_datasets, 
-#     label_map=label_map, 
-#     output_shape=output_shape, 
-#     train_users=train_users, 
-#     test_users=test_users, 
-#     window_size=window_size, 
-#     shift=window_size//2, 
-#     normalise_dataset=True, 
-#     verbose=1
-# )
+np_train, np_val, np_test = hchs_data_pre_processing.pre_process_dataset_composite(
+    user_datasets=user_datasets, 
+    label_map=label_map, 
+    output_shape=output_shape, 
+    train_users=train_users, 
+    test_users=test_users, 
+    window_size=window_size, 
+    shift=window_size//2, 
+    normalise_dataset=True, 
+    verbose=1
+)
 
 
 # %%
@@ -123,14 +123,14 @@ print(f'Test Numbers: {len(test_users)}, Train Numbers: {len(train_users)}')
 #     pickle.dump(np_val, f)
 
 
-with open(path_to_np_train, 'rb') as f:
-    np_train = pickle.load(f)
-with open(path_to_np_test, 'rb') as f:
-    np_test = pickle.load(f)
-with open(path_to_np_val, 'rb') as f:
-    np_val = pickle.load(f)
+# with open(path_to_np_train, 'rb') as f:
+#     np_train = pickle.load(f)
+# with open(path_to_np_test, 'rb') as f:
+#     np_test = pickle.load(f)
+# with open(path_to_np_val, 'rb') as f:
+#     np_val = pickle.load(f)
 
-print("got here 1")
+# print("got here 1")
 # %% [markdown]
 # ## SimCLR Training
 
