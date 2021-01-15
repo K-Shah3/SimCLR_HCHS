@@ -20,7 +20,7 @@ path_to_diseases_to_labels = os.path.join(path_to_pickled_hchs_data, "pid_to_dis
 condition_names_list = ["pid_to_diabetes", "pid_to_sleep_apnea", "pid_to_hypertension", "pid_to_mets", "pid_to_mets_ncep", "pid_to_mets_ncep2"]
 path_to_test_train_split_dict = os.path.join(path_to_pickled_hchs_data, "test_train_split_dict.pickle")  
 path_to_test_train_split_reduced_dict = os.path.join(path_to_pickled_hchs_data, "reduced_test_train_split_dict.pickle")
-
+path_to_condition_to_label_dict = os.path.join(path_to_pickled_hchs_data, "condition_to_label_dict.pickle")
 def load_data_and_active_labels(path_to_actigraphy_data, path_to_pickled_hchs_data):
     """Iterate through the actigraphy dataset. Extract pid from each file. 
     Filter the actigraphy data to: activity, whitelight, redlight, greenlight, bluelight, time
@@ -265,43 +265,47 @@ def get_fixed_test_train_split_reduced_and_pickle(pid_to_data_label_dict, path_t
 
 if __name__ == "__main__":
     # load_data_and_active_labels(path_to_actigraphy_data, path_to_pickled_hchs_data)
-    path_to_pid_to_data_label_dict = path_to_pickled_hchs_data + "\\pid_to_data_label_dict.pickle"
-    with open(path_to_pid_to_data_label_dict, 'rb') as f:
-        pid_to_data_label_dict = pickle.load(f)
+    # path_to_pid_to_data_label_dict = path_to_pickled_hchs_data + "\\pid_to_data_label_dict.pickle"
+    # with open(path_to_pid_to_data_label_dict, 'rb') as f:
+    #     pid_to_data_label_dict = pickle.load(f)
 
-    # print(pid_to_data_label_dict)
-    print("done loading data_label dict")
-    # # load_disease_data(path_to_baseline_dataset, path_to_sueno_dataset, path_to_pickled_hchs_data, pid_to_data_label_dict)
+    # # print(pid_to_data_label_dict)
+    # print("done loading data_label dict")
+    # # # load_disease_data(path_to_baseline_dataset, path_to_sueno_dataset, path_to_pickled_hchs_data, pid_to_data_label_dict)
 
-    # pid_to_disease_array = pd.read_pickle(path_to_pid_to_disease_array)
-    # print(pid_to_disease_array)
-    # # load_meta_data_array(path_to_baseline_dataset, path_to_pickled_hchs_data, pid_to_data_label_dict)
+    # # pid_to_disease_array = pd.read_pickle(path_to_pid_to_disease_array)
+    # # print(pid_to_disease_array)
+    # # # load_meta_data_array(path_to_baseline_dataset, path_to_pickled_hchs_data, pid_to_data_label_dict)
 
-    # pid_to_meta_data_array = pd.read_pickle(path_to_pid_to_meta_data_array)
+    # # pid_to_meta_data_array = pd.read_pickle(path_to_pid_to_meta_data_array)
 
-    # print(pid_to_meta_data_array)
-    # # load_label_mappings_for_diseases_and_gender(path_to_pickled_hchs_data)
+    # # print(pid_to_meta_data_array)
+    # # # load_label_mappings_for_diseases_and_gender(path_to_pickled_hchs_data)
     
-    # # with open(path_to_labels_mapping_dict, 'rb') as f:
-    # #     labels_mapping_dict = pickle.load(f)
+    # # # with open(path_to_labels_mapping_dict, 'rb') as f:
+    # # #     labels_mapping_dict = pickle.load(f)
 
-    # # print(labels_mapping_dict)
+    # # # print(labels_mapping_dict)
 
-    # # get_fixed_test_train_split_and_pickle(pid_to_data_label_dict, path_to_pickled_hchs_data)
+    # # # get_fixed_test_train_split_and_pickle(pid_to_data_label_dict, path_to_pickled_hchs_data)
 
-    # with open(path_to_test_train_split_dict, 'rb') as f:
+    # # with open(path_to_test_train_split_dict, 'rb') as f:
+    # #     test_train_split_dict = pickle.load(f)
+
+    # # print(len(test_train_split_dict['test']))
+    # # print(len(test_train_split_dict['train']))
+    
+    # get_fixed_test_train_split_reduced_and_pickle(pid_to_data_label_dict, path_to_pickled_hchs_data)
+
+    # with open(path_to_test_train_split_reduced_dict, 'rb') as f:
     #     test_train_split_dict = pickle.load(f)
 
     # print(len(test_train_split_dict['test']))
     # print(len(test_train_split_dict['train']))
-    
-    get_fixed_test_train_split_reduced_and_pickle(pid_to_data_label_dict, path_to_pickled_hchs_data)
-
-    with open(path_to_test_train_split_reduced_dict, 'rb') as f:
-        test_train_split_dict = pickle.load(f)
-
-    print(len(test_train_split_dict['test']))
-    print(len(test_train_split_dict['train']))
 
 
-    print("hello")
+    # print("hello")
+    with open(path_to_condition_to_label_dict, 'rb') as f:
+        condition_to_label_dict = pickle.load(f)
+
+    print(condition_to_label_dict)

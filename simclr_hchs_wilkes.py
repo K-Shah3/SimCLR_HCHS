@@ -1,6 +1,3 @@
-# To add a new cell, type '# %%'
-# To add a new markdown cell, type '# %% [markdown]'
-# %%
 import pickle
 import scipy.constants
 import datetime
@@ -10,63 +7,28 @@ import tqdm
 import os
 import pandas as pd
 
+# Libraries for plotting
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+import seaborn as sns
+import sklearn.manifold
 
-# %%
+sns.set_context('poster')
+
 import hchs_data_pre_processing
 import hchs_transformations
 import simclr_models
 import simclr_utitlities
 
-
-# %%
-working_directory = 'test_run_hchs'
+working_directory = 'test_run_hchs/'
 dataset_save_path = os.path.join(os.getcwd(), "PickledData", "hchs")
-user_datasets_path = os.path.join(dataset_save_path, "pid_to_data_label_dict.pickle")
 user_dataset_resized_path = os.path.join(dataset_save_path, "user_dataset_resized.pickle")
 path_to_test_train_split_dict = os.path.join(dataset_save_path, "test_train_split_dict.pickle")
-path_to_reduced_test_train_split_dict = os.path.join(dataset_save_path, "reduced_test_train_split_dict.pickle")
 sample_key = 163225
-path_to_np_train = os.path.join(dataset_save_path, "np_train.pickle")
-path_to_np_test = os.path.join(dataset_save_path, "np_test.pickle")
-path_to_np_val = os.path.join(dataset_save_path, "np_val.pickle")
 
-# %% [markdown]
-# # Load hchs data from pickle path
-
-# %%
-# with open(user_datasets_path, 'rb') as f:
-#     user_datasets = pickle.load(f)
-
-
-# %%
-# user_datasets_resized = {}
-
-# for user, user_data_labels in user_datasets.items():
-#     user_data = user_data_labels[0]
-#     user_labels = user_data_labels[1]
-#     print(user_data.shape, user_labels.shape, user)
-#     new_data = np.array(user_data.values.tolist())[:, :-1].astype(np.float64)
-#     new_labels = np.array([label[0] for label in user_labels.values.tolist()])
-#     user_datasets_resized[user] = [new_data, new_labels]
-
-
-# %%
-# with open(user_dataset_resized_path, 'wb') as f:
-#     pickle.dump(user_datasets_resized, f)
-
-
-# %%
 with open(user_dataset_resized_path, 'rb') as f:
     user_datasets = pickle.load(f)
 
-
-# %%
-# user_datasets[sample_key]
-
-# %% [markdown]
-# # Pre Processing
-
-# %%
 # Parameters
 window_size = 500
 input_shape = (window_size, 5)
@@ -99,8 +61,6 @@ train_users = test_train_user_dict['train']
 
 print(f'Test Numbers: {len(test_users)}, Train Numbers: {len(train_users)}')
 
-
-# %%
 np_train, np_val, np_test = hchs_data_pre_processing.pre_process_dataset_composite(
     user_datasets=user_datasets, 
     label_map=label_map, 
@@ -113,28 +73,6 @@ np_train, np_val, np_test = hchs_data_pre_processing.pre_process_dataset_composi
     verbose=1
 )
 
-
-# %%
-# with open(path_to_np_train, 'wb') as f:
-#     pickle.dump(np_train, f)
-# with open(path_to_np_test, 'wb') as f:
-#     pickle.dump(np_test, f)
-# with open(path_to_np_val, 'wb') as f:
-#     pickle.dump(np_val, f)
-
-
-# with open(path_to_np_train, 'rb') as f:
-#     np_train = pickle.load(f)
-# with open(path_to_np_test, 'rb') as f:
-#     np_test = pickle.load(f)
-# with open(path_to_np_val, 'rb') as f:
-#     np_val = pickle.load(f)
-
-# print("got here 1")
-# %% [markdown]
-# ## SimCLR Training
-
-# %%
 batch_size = 512
 decay_steps = 1000
 epochs = 200
@@ -155,8 +93,6 @@ transform_funcs_vectorised = [
 # transform_funcs_names = ['noised', 'scaled', 'rotated', 'negated', 'time_flipped', 'permuted', 'time_warped', 'channel_shuffled']
 transform_funcs_names = ['noised', 'scaled', 'negated', 'time_flipped', 'permuted', 'time_warped', 'channel_shuffled']
 
-
-# %%
 start_time = datetime.datetime.now()
 start_time_str = start_time.strftime("%Y%m%d-%H%M%S")
 tf.keras.backend.set_floatx('float32')
@@ -176,15 +112,6 @@ trained_simclr_model.save(simclr_model_save_path)
 
 print("got here 2")
 
-# %% [markdown]
-# ## Linear Model
-
-# %%
-
-
-
-# %%
-
 total_epochs = 50
 batch_size = 200
 tag = "linear_eval"
@@ -196,6 +123,12 @@ best_model_file_name = f"{working_directory}{start_time_str}_simclr_{tag}.hdf5"
 best_model_callback = tf.keras.callbacks.ModelCheckpoint(best_model_file_name,
     monitor='val_loss', mode='min', save_best_only=True, save_weights_only=False, verbose=0
 )
+
+plt.figure(figsize=(12,8))
+plt.plot(epoch_losses)
+plt.ylabel("Loss")
+plt.xlabel("Epoch")
+plt.show()
 
 training_history = linear_evaluation_model.fit(
     x = np_train[0],
@@ -216,8 +149,36 @@ print(simclr_utitlities.evaluate_model_simple(best_model.predict(np_test[0]), np
 print("Model in last epoch")
 print(simclr_utitlities.evaluate_model_simple(linear_evaluation_model.predict(np_test[0]), np_test[1], return_dict=True))
 
+target_model = simclr_model 
+perplexity = 30.0
+intermediate_model = simclr_models.extract_intermediate_model_from_base_model(target_model, intermediate_layer=7)
+intermediate_model.summary()
 
-# %%
-# adding something for the sake of it
+embeddings = intermediate_model.predict(np_test[0], batch_size=600)
+tsne_model = sklearn.manifold.TSNE(perplexity=perplexity, verbose=1, random_state=42)
+tsne_projections = tsne_model.fit_transform(embeddings)
+
+embeddings = intermediate_model.predict(np_test[0], batch_size=600)
+tsne_model = sklearn.manifold.TSNE(perplexity=perplexity, verbose=1, random_state=42)
+tsne_projections = tsne_model.fit_transform(embeddings)
+
+labels_argmax = np.argmax(np_test[1], axis=1)
+unique_labels = np.unique(labels_argmax)
+
+plt.figure(figsize=(16,8))
+graph = sns.scatterplot(
+    x=tsne_projections[:,0], y=tsne_projections[:,1],
+    hue=labels_argmax,
+    palette=sns.color_palette("hsv", len(unique_labels)),
+    s=50,
+    alpha=1.0,
+    rasterized=True
+)
+plt.xticks([], [])
+plt.yticks([], [])
 
 
+plt.legend(loc='lower left', bbox_to_anchor=(0.25, -0.3), ncol=2)
+legend = graph.legend_
+for j, label in enumerate(unique_labels):
+    legend.get_texts()[j].set_text(label_list_full_name[label]) 
