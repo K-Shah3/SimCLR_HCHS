@@ -1,4 +1,4 @@
-import pickle
+import pickle 
 import scipy.constants
 import datetime
 import tensorflow as tf
@@ -20,10 +20,14 @@ import hchs_transformations
 import simclr_models
 import simclr_utitlities
 
-working_directory = 'test_run_hchs/'
+working_directory = 'test_run_hchs_small_size/'
+
+if not os.path.exists(working_directory):
+    os.makedirs(working_directory)
+
 dataset_save_path = os.path.join(os.getcwd(), "PickledData", "hchs")
 user_dataset_resized_path = os.path.join(dataset_save_path, "user_dataset_resized.pickle")
-path_to_test_train_split_dict = os.path.join(dataset_save_path, "test_train_split_dict.pickle")
+path_to_test_train_split_dict = os.path.join(dataset_save_path, "reduced_test_train_split_dict.pickle")
 sample_key = 163225
 
 with open(user_dataset_resized_path, 'rb') as f:
@@ -75,7 +79,7 @@ np_train, np_val, np_test = hchs_data_pre_processing.pre_process_dataset_composi
 
 batch_size = 512
 decay_steps = 1000
-epochs = 200
+epochs = 3
 # epochs = 3
 temperature = 0.1
 trasnformation_indices = [1, 2] # Use Scaling and rotation trasnformation
@@ -112,7 +116,7 @@ trained_simclr_model.save(simclr_model_save_path)
 
 print("got here 2")
 
-total_epochs = 50
+total_epochs = 3
 batch_size = 200
 tag = "linear_eval"
 
@@ -124,22 +128,17 @@ best_model_callback = tf.keras.callbacks.ModelCheckpoint(best_model_file_name,
     monitor='val_loss', mode='min', save_best_only=True, save_weights_only=False, verbose=0
 )
 
-# ax1, fig1 = plt.subplots()
-# ax1.set_ylabel("Loss")
-# ax1.set_xlabel("Epoch")
-# epoch_save_name = f"{start_time_str}_epoch_loss.png"
-# plt_save_path = os.path.join(os.getcwd(), "plots", "epoch_loss", "hchs", epoch_save_name)
-# fig1.savefig(plt_save_path)
-
-# plt.figure(figsize=(12,8))
-# plt.plot(epoch_losses)
-# plt.ylabel("Loss")
-# plt.xlabel("Epoch")
-# epoch_save_name = f"{start_time_str}_epoch_loss.png"
-# plt_save_path = os.path.join(os.getcwd(), "plots", "epoch_loss", "hchs", epoch_save_name)
-# plt.savefig(plt_save_path)
-# plt.show()
-print("skipping epoch loss graph")
+plt.figure(figsize=(12,8))
+plt.plot(epoch_losses)
+plt.ylabel("Loss")
+plt.xlabel("Epoch")
+epoch_save_name = f"{start_time_str}_epoch_loss_testing.png"
+epoch_save_dir = os.path.join(os.getcwd(), "testing","plots", "epoch_loss", "hchs")
+if not os.path.exists(epoch_save_dir):
+    os.makedirs(epoch_save_dir)
+plt_save_path = os.path.join(epoch_save_dir, epoch_save_name)
+plt.savefig(plt_save_path)
+plt.show()
 
 training_history = linear_evaluation_model.fit(
     x = np_train[0],
@@ -160,20 +159,19 @@ print(simclr_utitlities.evaluate_model_simple(best_model.predict(np_test[0]), np
 print("Model in last epoch")
 print(simclr_utitlities.evaluate_model_simple(linear_evaluation_model.predict(np_test[0]), np_test[1], return_dict=True))
 
-print("starting tsne")
-
 target_model = simclr_model 
 perplexity = 30.0
 intermediate_model = simclr_models.extract_intermediate_model_from_base_model(target_model, intermediate_layer=7)
 intermediate_model.summary()
 
+print("starting tsne")
 embeddings = intermediate_model.predict(np_test[0], batch_size=600)
 tsne_model = sklearn.manifold.TSNE(perplexity=perplexity, verbose=1, random_state=42)
 tsne_projections = tsne_model.fit_transform(embeddings)
-print("done projections")
-# embeddings = intermediate_model.predict(np_test[0], batch_size=600)
-# tsne_model = sklearn.manifold.TSNE(perplexity=perplexity, verbose=1, random_state=42)
-# tsne_projections = tsne_model.fit_transform(embeddings)
+
+embeddings = intermediate_model.predict(np_test[0], batch_size=600)
+tsne_model = sklearn.manifold.TSNE(perplexity=perplexity, verbose=1, random_state=42)
+tsne_projections = tsne_model.fit_transform(embeddings)
 
 labels_argmax = np.argmax(np_test[1], axis=1)
 unique_labels = np.unique(labels_argmax)
@@ -191,12 +189,15 @@ plt.xticks([], [])
 plt.yticks([], [])
 
 
-
 plt.legend(loc='lower left', bbox_to_anchor=(0.25, -0.3), ncol=2)
 legend = graph.legend_
 for j, label in enumerate(unique_labels):
     legend.get_texts()[j].set_text(label_list_full_name[label]) 
 
-tsne_save_name = f"{start_time_str}_tsne.png"
-tsne_plt_save_path = os.path.join(os.getcwd(), "plots", "tsne", "hchs", tsne_save_name)
+tsne_save_name = f"{start_time_str}_tsne_testing.png"
+tsne_save_dir = os.path.join(os.getcwd(), "testing","plots", "tsne", "hchs")
+if not os.path.exists(tsne_save_dir):
+    os.makedirs(tsne_save_dir)
+tsne_plt_save_path = os.path.join(tsne_save_dir, tsne_save_name)
 plt.savefig(tsne_plt_save_path)
+plt.show()
