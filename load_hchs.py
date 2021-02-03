@@ -13,6 +13,7 @@ path_to_baseline_dataset = os.path.join(path_to_hchs_dataset, "datasets", "hchs-
 path_to_sueno_dataset = os.path.join(path_to_hchs_dataset, "datasets", "hchs-sol-sueno-ancillary-dataset-0.5.0.csv")
 path_to_pickled_hchs_data = os.path.join(os.getcwd(), "PickledData", "hchs")
 path_to_data_label_dict = os.path.join(path_to_pickled_hchs_data, "pid_to_data_label_dict.pickle")
+path_to_data_label_dict_no_time_column = os.path.join(path_to_pickled_hchs_data, "user_dataset_resized.pickle")
 path_to_pid_to_disease_array = os.path.join(path_to_pickled_hchs_data, "pid_to_disease_array.pickle")
 path_to_pid_to_meta_data_array = os.path.join(path_to_pickled_hchs_data, "pid_to_meta_data_array.pickle")
 path_to_labels_mapping_dict = os.path.join(path_to_pickled_hchs_data, "labels_mapping_dict.pickle")
@@ -21,6 +22,12 @@ condition_names_list = ["pid_to_diabetes", "pid_to_sleep_apnea", "pid_to_hyperte
 path_to_test_train_split_dict = os.path.join(path_to_pickled_hchs_data, "test_train_split_dict.pickle")  
 path_to_test_train_split_reduced_dict = os.path.join(path_to_pickled_hchs_data, "reduced_test_train_split_dict.pickle")
 path_to_condition_to_label_dict = os.path.join(path_to_pickled_hchs_data, "condition_to_label_dict.pickle")
+
+# use for training on smaller number 
+path_to_users_dataset_100 = os.path.join(path_to_pickled_hchs_data, '100_users_dataset.pickle')
+path_to_test_train_users_100 = os.path.join(path_to_pickled_hchs_data, '100_users_reduced_test_train_users.pickle')
+
+
 def load_data_and_active_labels(path_to_actigraphy_data, path_to_pickled_hchs_data):
     """Iterate through the actigraphy dataset. Extract pid from each file. 
     Filter the actigraphy data to: activity, whitelight, redlight, greenlight, bluelight, time
@@ -186,7 +193,6 @@ def compare_mets_dicts(dict1, dict2):
             number_diff += 1
     return number_diff, number_dict1_yes, number_dict2_yes
 
-
 def load_label_mappings_for_diseases_and_gender(path_to_pickled_hchs_data):
     diabetes_labels_dict = {1: "Non-diabetic", 2: "Pre-diabetic", 3: "Diabetic"}
     sleep_apnea_labels_dict = {0: "Non-apneaic", 1:"Mild-to-severe-apnea"}
@@ -242,7 +248,6 @@ def get_fixed_test_train_split_and_pickle(pid_to_data_label_dict, path_to_pickle
 
     with open(save_path, 'wb') as f:
         pickle.dump(test_train_split_dict, f)
-
     
 def get_fixed_test_train_split_reduced_and_pickle(pid_to_data_label_dict, path_to_pickled_hchs_data):
     pids = pid_to_data_label_dict.keys()
@@ -260,14 +265,36 @@ def get_fixed_test_train_split_reduced_and_pickle(pid_to_data_label_dict, path_t
     with open(save_path, 'wb') as f:
         pickle.dump(test_train_split_dict, f)
 
+def get_fixed_test_train_users_and_user_datasets_and_pickle(pid_to_data_label_dict, path_to_pickled_hchs_data, total_number=100):
+    pids = pid_to_data_label_dict.keys()
+    reduced_pids = random.sample(pids, total_number)
+    number_of_test_pids = int(0.2 * total_number)
+
+    test_pids = random.sample(reduced_pids, number_of_test_pids)
+    train_pids = [pid for pid in reduced_pids if pid not in test_pids]
+
+    reduced_test_train_users_dict = {'test': test_pids, 'train': train_pids}
+    reduced_pid_to_data_user_dataset = {}
+    for pid in reduced_pids:
+        reduced_pid_to_data_user_dataset[pid] = pid_to_data_label_dict[pid]
+
+    save_path_users_dict = os.path.join(path_to_pickled_hchs_data, '100_users_reduced_test_train_users.pickle')
+    save_path_users_dataset = os.path.join(path_to_pickled_hchs_data, '100_users_dataset.pickle')
+
+    with open(save_path_users_dataset, 'wb') as f:
+        pickle.dump(reduced_pid_to_data_user_dataset, f)
+
+    with open(save_path_users_dict, 'wb') as g:
+        pickle.dump(reduced_test_train_users_dict, g)
+
     
     
 
 if __name__ == "__main__":
     # load_data_and_active_labels(path_to_actigraphy_data, path_to_pickled_hchs_data)
     # path_to_pid_to_data_label_dict = path_to_pickled_hchs_data + "\\pid_to_data_label_dict.pickle"
-    # with open(path_to_pid_to_data_label_dict, 'rb') as f:
-    #     pid_to_data_label_dict = pickle.load(f)
+    with open(path_to_data_label_dict_no_time_column, 'rb') as f:
+        pid_to_data_label_dict = pickle.load(f)
 
     # # print(pid_to_data_label_dict)
     # print("done loading data_label dict")
@@ -305,7 +332,23 @@ if __name__ == "__main__":
 
 
     # print("hello")
-    with open(path_to_condition_to_label_dict, 'rb') as f:
-        condition_to_label_dict = pickle.load(f)
+    # with open(path_to_condition_to_label_dict, 'rb') as f:
+    #     condition_to_label_dict = pickle.load(f)
 
-    print(condition_to_label_dict)
+    # print(condition_to_label_dict)
+
+    get_fixed_test_train_users_and_user_datasets_and_pickle(pid_to_data_label_dict, path_to_pickled_hchs_data)
+
+    with open(path_to_users_dataset_100, 'rb') as f:
+        user_dataset_100 = pickle.load(f)
+
+    print(len(user_dataset_100.keys()))
+
+    with open(path_to_test_train_users_100, 'rb') as f:
+        test_train_users_100 = pickle.load(f)
+
+    print(len(test_train_users_100['train']))
+    print(len(test_train_users_100['test']))
+
+    for key in test_train_users_100['test']:
+        print(user_dataset_100[key][0].shape)

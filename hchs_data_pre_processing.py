@@ -443,4 +443,27 @@ def get_batched_dataset_generator(data, batch_size):
 
     # return data[:max_len].reshape((-1, batch_size, data.shape[-2], data.shape[-1]))
 
-# adding something for the sake of it
+def get_window_to_user_mapping(user_datasets, train_users, test_users, window_size):
+    """
+    Return a list the same length as the size of the np_train, np_val and np_test datasets which have been windowed that
+    map the row to which user it came from 
+    
+    Returns:
+        [train_user_window_list, val_user_window_list, test_user_window_list]
+    """
+    user_datasets_windowed = get_windows_dataset_from_user_list_format(user_datasets, window_size, shift=window_size//2)
+
+    test_user_window_list = []
+    train_user_window_list = []
+    for user in user_datasets_windowed.keys():
+        user_to_add = [user] * user_datasets_windowed[user][0].shape[0]
+        if user in test_users:
+            test_user_window_list += user_to_add
+
+        if user in train_users:
+            train_user_window_list += user_to_add
+
+    train_user_window_list, val_user_window_list, _, _ = sklearn.model_selection.train_test_split(train_user_window_list, 
+    train_user_window_list, test_size=0.20, random_state=42)
+
+    return [train_user_window_list, val_user_window_list, test_user_window_list]

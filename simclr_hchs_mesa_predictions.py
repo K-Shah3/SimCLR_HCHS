@@ -1,4 +1,4 @@
-import pickle5 as pickle 
+import pickle as pickle 
 import scipy.constants
 import datetime
 import tensorflow as tf
@@ -6,16 +6,13 @@ import numpy as np
 import tqdm
 import os
 import pandas as pd
-
 # Libraries for plotting
 import matplotlib as mpl
 mpl.use('Agg')
 import matplotlib.pyplot as plt
 import seaborn as sns
 import sklearn.manifold
-
 sns.set_context('poster')
-
 # Classifiers
 from sklearn.ensemble import VotingClassifier
 from sklearn.ensemble import RandomForestClassifier
@@ -40,15 +37,18 @@ working_directory = 'test_run_hchs/'
 if not os.path.exists(working_directory):
     os.makedirs(working_directory)
 
+## FOR TESTING ON A REDUCED DATASET OF 100 USERS ONLY 
+
 dataset_save_path = os.path.join(os.getcwd(), "PickledData", "hchs")
 user_dataset_resized_path = os.path.join(dataset_save_path, "user_dataset_resized.pickle")
 path_to_test_train_split_dict = os.path.join(dataset_save_path, "test_train_split_dict.pickle")
+
 path_to_baseline_sueno_merge_no_na = os.path.join(dataset_save_path, "baseline_sueno_merge_no_na.pickle")
-disease_labels = {'diabetes': {1: 'Non-diabetic', 2: 'Pre-diabetic', 3: 'Diabetic'}, 'sleep_apnea': {0: 'No', 1: 'Yes'}, 'hypertension': {0: 'No', 1: 'Yes'}, 'metabolic_syndrome': {0: 'No', 1: 'Yes'}, 'insomnia': {1: 'No clinically significant insomnia', 2: 'Subthreshold insomnia', 3: 'Clinical insomnia'}, 'gender': {0: 'female', 1: 'male'}}
+disease_labels = {'diabetes': {1: 'Non-diabetic', 2: 'Pre-diabetic', 3: 'Diabetic'}, 'sleep_apnea': {0: 'No', 1: 'Yes'}, 'hypertension': {0: 'No', 1: 'Yes'}, 'metabolic_syndrome': {0: 'No', 1: 'Yes'}, 'insomnia': {1: 'No clinically significant insomnia', 2: 'Subthreshold insomnia', 3: 'Clinical insomnia'}}
 
 sample_key = 163225
 
-with open(user_dataset_resized_path, 'rb') as f:
+with open(path_to_user_datasets, 'rb') as f:
     user_datasets = pickle.load(f)
 
 # Parameters
@@ -97,8 +97,8 @@ np_train, np_val, np_test = hchs_data_pre_processing.pre_process_dataset_composi
 
 batch_size = 512
 decay_steps = 1000
-epochs = 200
-# epochs = 3
+# epochs = 200
+epochs = 3
 temperature = 0.1
 trasnformation_indices = [1, 2] # Use Scaling and rotation trasnformation
 
@@ -129,101 +129,91 @@ simclr_model.summary()
 
 print("end of simclr bit")
 
-# trained_simclr_model, epoch_losses = simclr_utitlities.simclr_train_model(simclr_model, np_train[0], optimizer, batch_size, transformation_function, temperature=temperature, epochs=epochs, is_trasnform_function_vectorized=True, verbose=1)
+trained_simclr_model, epoch_losses = simclr_utitlities.simclr_train_model(simclr_model, np_train[0], optimizer, batch_size, transformation_function, temperature=temperature, epochs=epochs, is_trasnform_function_vectorized=True, verbose=1)
 
-# simclr_model_save_path = f"{working_directory}{start_time_str}_simclr.hdf5"
-# trained_simclr_model.save(simclr_model_save_path)
+simclr_model_save_path = f"{working_directory}{start_time_str}_simclr.hdf5"
+trained_simclr_model.save(simclr_model_save_path)
 
-# print("got here 2")
+print("got here 2")
 
-# total_epochs = 50
-# batch_size = 200
-# tag = "linear_eval"
+total_epochs = 3
+batch_size = 200
+tag = "linear_eval"
 
-# simclr_model = tf.keras.models.load_model(simclr_model_save_path)
-# linear_evaluation_model = simclr_models.create_linear_model_from_base_model(simclr_model, output_shape, intermediate_layer=7)
+simclr_model = tf.keras.models.load_model(simclr_model_save_path)
+linear_evaluation_model = simclr_models.create_linear_model_from_base_model(simclr_model, output_shape, intermediate_layer=7)
 
-# best_model_file_name = f"{working_directory}{start_time_str}_simclr_{tag}.hdf5"
-# best_model_callback = tf.keras.callbacks.ModelCheckpoint(best_model_file_name,
-#     monitor='val_loss', mode='min', save_best_only=True, save_weights_only=False, verbose=0
-# )
-
-# # ax1, fig1 = plt.subplots()
-# # ax1.set_ylabel("Loss")
-# # ax1.set_xlabel("Epoch")
-# # epoch_save_name = f"{start_time_str}_epoch_loss.png"
-# # plt_save_path = os.path.join(os.getcwd(), "plots", "epoch_loss", "hchs", epoch_save_name)
-# # fig1.savefig(plt_save_path)
-
-# # plt.figure(figsize=(12,8))
-# # plt.plot(epoch_losses)
-# # plt.ylabel("Loss")
-# # plt.xlabel("Epoch")
-# # epoch_save_name = f"{start_time_str}_epoch_loss.png"
-# # plt_save_path = os.path.join(os.getcwd(), "plots", "epoch_loss", "hchs", epoch_save_name)
-# # plt.savefig(plt_save_path)
-# # plt.show()
-# print("skipping epoch loss graph")
-
-# training_history = linear_evaluation_model.fit(
-#     x = np_train[0],
-#     y = np_train[1],
-#     batch_size=batch_size,
-#     shuffle=True,
-#     epochs=total_epochs,
-#     callbacks=[best_model_callback],
-#     validation_data=np_val
-# )
-
-# print("got here 3")
-
-# best_model = tf.keras.models.load_model(best_model_file_name)
-
-# print("Model with lowest validation Loss:")
-# print(simclr_utitlities.evaluate_model_simple(best_model.predict(np_test[0]), np_test[1], return_dict=True))
-# print("Model in last epoch")
-# print(simclr_utitlities.evaluate_model_simple(linear_evaluation_model.predict(np_test[0]), np_test[1], return_dict=True))
-
-# print("starting tsne")
-
-# target_model = simclr_model 
-# perplexity = 30.0
-# intermediate_model = simclr_models.extract_intermediate_model_from_base_model(target_model, intermediate_layer=7)
-# intermediate_model.summary()
-
-# embeddings = intermediate_model.predict(np_test[0], batch_size=600)
-# tsne_model = sklearn.manifold.TSNE(perplexity=perplexity, verbose=1, random_state=42)
-# tsne_projections = tsne_model.fit_transform(embeddings)
-# print("done projections")
-# # embeddings = intermediate_model.predict(np_test[0], batch_size=600)
-# # tsne_model = sklearn.manifold.TSNE(perplexity=perplexity, verbose=1, random_state=42)
-# # tsne_projections = tsne_model.fit_transform(embeddings)
-
-# labels_argmax = np.argmax(np_test[1], axis=1)
-# unique_labels = np.unique(labels_argmax)
-
-# plt.figure(figsize=(16,8))
-# graph = sns.scatterplot(
-#     x=tsne_projections[:,0], y=tsne_projections[:,1],
-#     hue=labels_argmax,
-#     palette=sns.color_palette("hsv", len(unique_labels)),
-#     s=50,
-#     alpha=1.0,
-#     rasterized=True
-# )
-# plt.xticks([], [])
-# plt.yticks([], [])
+best_model_file_name = f"{working_directory}{start_time_str}_simclr_{tag}.hdf5"
+best_model_callback = tf.keras.callbacks.ModelCheckpoint(best_model_file_name,
+    monitor='val_loss', mode='min', save_best_only=True, save_weights_only=False, verbose=0
+)
 
 
+plt.figure(figsize=(12,8))
+plt.plot(epoch_losses)
+plt.ylabel("Loss")
+plt.xlabel("Epoch")
+epoch_save_name = f"{start_time_str}_epoch_loss.png"
+plt_save_path = os.path.join(os.getcwd(), "plots", "epoch_loss", "hchs", epoch_save_name)
+plt.savefig(plt_save_path)
+plt.show()
 
-# plt.legend(loc='lower left', bbox_to_anchor=(0.25, -0.3), ncol=2)
-# legend = graph.legend_
-# for j, label in enumerate(unique_labels):
-#     legend.get_texts()[j].set_text(label_list_full_name[label]) 
+training_history = linear_evaluation_model.fit(
+    x = np_train[0],
+    y = np_train[1],
+    batch_size=batch_size,
+    shuffle=True,
+    epochs=total_epochs,
+    callbacks=[best_model_callback],
+    validation_data=np_val
+)
 
-# tsne_save_name = f"{start_time_str}_tsne.png"
-# tsne_plt_save_path = os.path.join(os.getcwd(), "plots", "tsne", "hchs", tsne_save_name)
-# plt.savefig(tsne_plt_save_path)
+print("got here 3")
+
+best_model = tf.keras.models.load_model(best_model_file_name)
+
+print("Model with lowest validation Loss:")
+print(simclr_utitlities.evaluate_model_simple(best_model.predict(np_test[0]), np_test[1], return_dict=True))
+print("Model in last epoch")
+print(simclr_utitlities.evaluate_model_simple(linear_evaluation_model.predict(np_test[0]), np_test[1], return_dict=True))
+
+print("starting tsne")
+
+target_model = simclr_model 
+perplexity = 30.0
+intermediate_model = simclr_models.extract_intermediate_model_from_base_model(target_model, intermediate_layer=7)
+intermediate_model.summary()
+
+embeddings = intermediate_model.predict(np_test[0], batch_size=600)
+tsne_model = sklearn.manifold.TSNE(perplexity=perplexity, verbose=1, random_state=42)
+tsne_projections = tsne_model.fit_transform(embeddings)
+print("done projections")
+
+labels_argmax = np.argmax(np_test[1], axis=1)
+unique_labels = np.unique(labels_argmax)
+
+plt.figure(figsize=(16,8))
+graph = sns.scatterplot(
+    x=tsne_projections[:,0], y=tsne_projections[:,1],
+    hue=labels_argmax,
+    palette=sns.color_palette("hsv", len(unique_labels)),
+    s=50,
+    alpha=1.0,
+    rasterized=True
+)
+plt.xticks([], [])
+plt.yticks([], [])
+
+
+plt.legend(loc='lower left', bbox_to_anchor=(0.25, -0.3), ncol=2)
+legend = graph.legend_
+for j, label in enumerate(unique_labels):
+    legend.get_texts()[j].set_text(label_list_full_name[label]) 
+
+tsne_save_name = f"{start_time_str}_tsne.png"
+tsne_plt_save_path = os.path.join(os.getcwd(), "plots", "tsne", "hchs", tsne_save_name)
+plt.savefig(tsne_plt_save_path)
+plt.show()
 
 print("starting classifier predictions")
 
@@ -256,6 +246,7 @@ disease_trained_classifiers = {}
 
 aggregate = 'mean'
 
+scaler_fit_to_hchs_train_data = None
 for disease in disease_labels.keys():
     classifier_results = {}
     trained_classifiers_dictionary = {}
@@ -263,12 +254,13 @@ for disease in disease_labels.keys():
         print(disease)
         print(classifier_name)
         
-        trained_classifier, predictions, accuracy, precision, recall, f1, confusion_matrix = simclr_predictions.get_prediction_and_scores_from_model_and_classifier_disease_specific(disease, user_datasets, simclr_model, np_train, np_val, np_test, batch_size, train_users, test_users, window_size, path_to_baseline_sueno_merge_no_na, classifier, aggregate=aggregate)
+        trained_classifier, scaler, predictions, accuracy, precision, recall, f1, confusion_matrix = simclr_predictions.get_prediction_and_scores_from_model_and_classifier_disease_specific(disease, user_datasets, simclr_model, np_train, np_val, np_test, batch_size, train_users, test_users, window_size, path_to_baseline_sueno_merge_no_na, classifier, aggregate=aggregate)
         print(f'accuracy: {accuracy}, precision: {precision}, recall: {recall}, f1: {f1}')
         print(f'confusion matrix: {confusion_matrix}')
         print("---------------")
         classifier_results[classifier_name] = [predictions, accuracy, precision, recall, f1, confusion_matrix]
         trained_classifiers_dictionary[classifier_name] = trained_classifier
+        scaler_fit_to_hchs_train_data = scaler
     
     disease_classifier_results[disease] = classifier_results
     disease_trained_classifiers[disease] = trained_classifiers_dictionary
@@ -294,9 +286,8 @@ print("predicting mesa")
 
 # mesa file path 
 mesa_dataset_save_path = os.path.join(os.getcwd(), "PickledData", "mesa")
-mesa_user_datasets_path = os.path.join(mesa_dataset_save_path, "mesaid_to_data_label_dict.pickle")
+mesa_user_datasets_path = os.path.join(mesa_dataset_save_path, "user_dataset_resized.pickle")
 mesa_path_to_test_train_split_dict = os.path.join(mesa_dataset_save_path, "test_train_split_dict.pickle")
-mesa_path_to_reduced_test_train_split_dict = os.path.join(dataset_save_path, "reduced_test_train_split_dict.pickle")
 
 mesa_sample_key = 3950
 
@@ -309,7 +300,7 @@ with open(mesa_path_to_test_train_split_dict, 'rb') as f:
 mesa_test_users = mesa_test_train_user_dict['test']
 mesa_train_users = mesa_test_train_user_dict['train']
 
-print(f'Test Numbers: {len(mesa_test_users)}, Train Numbers: {len(mesa_train_users)}')
+print(f'MESA Test Numbers: {len(mesa_test_users)}, MESA Train Numbers: {len(mesa_train_users)}')
 
 mesa_np_train, mesa_np_val, mesa_np_test = hchs_data_pre_processing.pre_process_dataset_composite(
     user_datasets=mesa_user_datasets, 
@@ -330,4 +321,3 @@ mesa_disease_metric_optimised_predictions = simclr_predictions.mesa_predictions_
 mesa_disease_metric_optimised_predictions_save_path = f"{disease_classifier_results_directory}{start_time_str}_mesa_disease_metric_optimised_predictions.pickle"
 with open(mesa_disease_metric_optimised_predictions_save_path, 'wb') as f:
     pickle.dump(mesa_disease_metric_optimised_predictions, f)
-
