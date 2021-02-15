@@ -8,7 +8,6 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import os
 import pickle
-
 import simclr_models
 import hchs_data_pre_processing
 
@@ -106,9 +105,9 @@ def get_train_test_val_baseline_sueno(path_to_baseline_sueno_merge_no_na, user_d
     return train_val_test_baseline_sueno_merged_no_na
 
 def get_train_valid_test_X_y_disease_specific(disease, user_datasets, model, np_train, np_val, np_test, batch_size, 
-                                    train_users, test_users, window_size, path_to_baseline_sueno_merge_no_na, aggregate='mean', number_of_layers=7):
+                                    train_users, test_users, window_size, path_to_baseline_sueno_merge_no_na, aggregate, number_of_layers=7):
 
-    train_val_test_user_level_activations_filtered, train_val_test_baseline_sueno_merged_no_na = model_to_user_level_activations(user_datasets, model, np_train, np_val, np_test, batch_size, train_users, test_users, window_size, path_to_baseline_sueno_merge_no_na, aggregate='mean', number_of_layers=7)
+    train_val_test_user_level_activations_filtered, train_val_test_baseline_sueno_merged_no_na = model_to_user_level_activations(user_datasets, model, np_train, np_val, np_test, batch_size, train_users, test_users, window_size, path_to_baseline_sueno_merge_no_na, aggregate=aggregate, number_of_layers=7)
 
     train_X = train_val_test_user_level_activations_filtered[0].values.tolist()
     val_X = train_val_test_user_level_activations_filtered[1].values.tolist()
@@ -236,7 +235,7 @@ def plot_disease_prediction_metrics(disease, classifier_data, figure_save_path, 
     title = f'{disease} prediction metrics'
     plt.title(title)
 
-    plt.legend()
+    plt.legend(fontsize='small')
 
     plt.savefig(figure_save_path)
     plt.show()
@@ -321,33 +320,43 @@ def mesa_plot_predictions(disease_metric_optimised_predictions, save_directory, 
     """
     Given the disease specific and metric optimised predictions plot the number of predictions 
     """
+    disease_labels = {'diabetes': {1: 'Non-diabetic', 2: 'Pre-diabetic', 3: 'Diabetic'}, 'sleep_apnea': {0: 'No', 1: 'Yes'}, 'hypertension': {0: 'No', 1: 'Yes'}, 'metabolic_syndrome': {0: 'No', 1: 'Yes'}, 'insomnia': {1: 'No clinically significant insomnia', 2: 'Subthreshold insomnia', 3: 'Clinical insomnia'}}
     # for example disease=diabetes metric_predictions = {'accuracy':[predictions], 'precision':[predictions] etc }
     for disease, metric_predictions in disease_metric_optimised_predictions.items():
         # e.g. {1: 'Non-diabetic', 2: 'Pre-diabetic', 3: 'Diabetic'} for diabetes
         disease_label_dict = disease_labels[disease]
+        # e.g. [1,2,3]
+        disease_label_category_numbers = list(disease_label_dict.keys())
         # e.g. {'accuracy': {'Non-diabetic':60, 'Pre-diabetic':30, 'Diabetic':10} etc }
         metric_percentage_dict = {}
         for metric, predictions in metric_predictions.items():
             # e.g. {1: 100, 2:50, 3:50} for diabetes
             count_of_categories = dict(Counter(predictions))
+            for disease_label_category in disease_label_category_numbers:
+                if disease_label_category not in count_of_categories:
+                    count_of_categories[disease_label_category] = 0
             number_of_predictions = len(predictions)
             # e.g. {'Non-diabetic':50, 'Pre-diabetic':25, 'Diabetic':25}
             percentage_per_label = {}
             for category, count in count_of_categories.items():
-                category_full_name = disease_label_dict[category]
+                # if category not in disease label dict skip
+                if category in disease_label_dict:
+                    category_full_name = disease_label_dict[category]
+                else:
+                    continue
                 percentage = count / number_of_predictions * 100
-                percentage_per_label[category_full_name] = percentage
+                percentage_per_label[category_full_name] = percentage 
 
             metric_percentage_dict[metric] = percentage_per_label
 
-        disease_labels = list(disease_label_dict.values())
+        disease_label_words = list(disease_label_dict.values())
         # {'Non-diabetic':[60,58,10,60], 'Pre-diabetic':[40,20,60,30], 'Diabetic':[0,22,30,10]}
         plotting_data = {}
-        for disease_label in disease_labels:
+        for disease_label_word in disease_label_words:
             label_plotting_values = []
             for metric, percentage_dict in metric_percentage_dict.items():
-                label_plotting_values.append(percentage_dict[disease_label])
-            plotting_data[disease_label] = plotting_data
+                label_plotting_values.append(percentage_dict[disease_label_word])
+            plotting_data[disease_label_word] = label_plotting_values
 
         metrics = ['accuracy', 'precision', 'recall', 'f1']
         # plotting graph now 
@@ -360,11 +369,11 @@ def mesa_plot_predictions(disease_metric_optimised_predictions, save_directory, 
             bottom_coords = layer
         
         plt.xticks(rotation=45)
-        plt.xlabel('Metrics')
-        plt.ylabel('Predicted Percentage per Condition')
+        plt.xlabel('Metrics', fontsize=10)
+        plt.ylabel('Predicted Percentage per Condition', fontsize=10)
 
         legend_plotting = [x[0] for x in plts]
-        plt.legend(legend_plotting, disease_labels)
+        plt.legend(legend_plotting, disease_label_words, fontsize='small')
 
         save_path = os.path.join(save_directory, f'mesa_predictions_for_{disease}.png')
         plt.savefig(save_path)

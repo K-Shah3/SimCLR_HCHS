@@ -10,6 +10,7 @@ import pandas as pd
 import pickle
 from scipy.signal import resample
 from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import StandardScaler
 from tqdm import tqdm
 enc = LabelEncoder()
 
@@ -21,42 +22,45 @@ path_to_pickled_chapman_data = os.path.join(os.getcwd(), "PickledData", "chapman
 path_to_patient_to_data_label_dict = os.path.join(path_to_pickled_chapman_data, "patient_to_data_label_dict.pickle")
 path_to_patient_to_data_per_row_label_dict = os.path.join(path_to_pickled_chapman_data, "patient_to_data_label_per_row_dict.pickle")
 path_to_test_train_split_dict = os.path.join(path_to_pickled_chapman_data, "test_train_split_dict.pickle")  
-path_to_test_train_split_reduced_dict = os.path.join(path_to_pickled_chapman_data, "reduced_test_train_split_dict.pickle")
+path_to_four_lead_user_datasets = os.path.join(path_to_pickled_chapman_data, 'four_lead_user_datasets.pickle')
 
+# for testing 
+path_to_test_train_split_reduced_dict = os.path.join(path_to_pickled_chapman_data, '100_users_reduced_test_train_split_dict.pickle')
+path_to_reduced_four_lead_user_datasets = os.path.join(path_to_pickled_chapman_data, '100_users_datasets.pickle')
 
-# define file path
-attributes_file_path = path_to_chapman_dataset + "\\AttributesDictionary.xlsx"
-condition_names_file_path = path_to_chapman_dataset + "\\ConditionNames.xlsx"
-diagnostics_file_path = path_to_chapman_dataset + "\\Diagnostics.xlsx"
-rhythm_names_file_path = path_to_chapman_dataset + "\\RhythmNames.xlsx"
+# # define file path
+# attributes_file_path = path_to_chapman_dataset + "\\AttributesDictionary.xlsx"
+# condition_names_file_path = path_to_chapman_dataset + "\\ConditionNames.xlsx"
+# diagnostics_file_path = path_to_chapman_dataset + "\\Diagnostics.xlsx"
+# rhythm_names_file_path = path_to_chapman_dataset + "\\RhythmNames.xlsx"
 
-# read xlsx files 
-attributes_dictionary = pd.read_excel(attributes_file_path, 'Sheet1', dtype=str, index_col=None).applymap(lambda x: x.strip() if isinstance(x, str) else x)
-condition_names = pd.read_excel(condition_names_file_path, 'Sheet1', dtype=str, index_col=None).applymap(lambda x: x.strip() if isinstance(x, str) else x)
-diagnostics = pd.read_excel(diagnostics_file_path, 'Sheet1', dtype=str, index_col=None).applymap(lambda x: x.strip() if isinstance(x, str) else x)
-rhythm_names = pd.read_excel(rhythm_names_file_path, 'Sheet1', dtype=str, index_col=None).applymap(lambda x: x.strip() if isinstance(x, str) else x)
+# # read xlsx files 
+# attributes_dictionary = pd.read_excel(attributes_file_path, 'Sheet1', dtype=str, index_col=None).applymap(lambda x: x.strip() if isinstance(x, str) else x)
+# condition_names = pd.read_excel(condition_names_file_path, 'Sheet1', dtype=str, index_col=None).applymap(lambda x: x.strip() if isinstance(x, str) else x)
+# diagnostics = pd.read_excel(diagnostics_file_path, 'Sheet1', dtype=str, index_col=None).applymap(lambda x: x.strip() if isinstance(x, str) else x)
+# rhythm_names = pd.read_excel(rhythm_names_file_path, 'Sheet1', dtype=str, index_col=None).applymap(lambda x: x.strip() if isinstance(x, str) else x)
 
-# 
-dates = diagnostics['FileName'].str.split('_',expand=True).iloc[:,1]
-dates.name = 'Dates'
-dates = pd.to_datetime(dates)
-diagnostics_with_dates = pd.concat((diagnostics,dates),1)
+# # 
+# dates = diagnostics['FileName'].str.split('_',expand=True).iloc[:,1]
+# dates.name = 'Dates'
+# dates = pd.to_datetime(dates)
+# diagnostics_with_dates = pd.concat((diagnostics,dates),1)
 
-""" Combine Rhythm Labels - map to only 4 rhythms """
-old_rhythms = ['AF','SVT','ST','AT','AVNRT','AVRT','SAAWR','SI','SA']
-new_rhythms = ['AFIB','GSVT','GSVT','GSVT','GSVT','GSVT','GSVT','SR','SR']
-diagnostics_with_dates['Rhythm'] = diagnostics_with_dates['Rhythm'].replace(old_rhythms,new_rhythms)
-unique_labels = diagnostics_with_dates['Rhythm'].value_counts().index.tolist()
-print(unique_labels)
-label_enc = enc.fit(unique_labels)
-print(label_enc)
+# """ Combine Rhythm Labels - map to only 4 rhythms """
+# old_rhythms = ['AF','SVT','ST','AT','AVNRT','AVRT','SAAWR','SI','SA']
+# new_rhythms = ['AFIB','GSVT','GSVT','GSVT','GSVT','GSVT','GSVT','SR','SR']
+# diagnostics_with_dates['Rhythm'] = diagnostics_with_dates['Rhythm'].replace(old_rhythms,new_rhythms)
+# unique_labels = diagnostics_with_dates['Rhythm'].value_counts().index.tolist()
+# print(unique_labels)
+# label_enc = enc.fit(unique_labels)
+# print(label_enc)
 
-sampling_rate = 500
-resampling_length = 5000
-# resampling_length = 2500
+# sampling_rate = 500
+# resampling_length = 5000
+# # resampling_length = 2500
 
-leads = ['I','II','III','aVR','aVL','aVF','V1','V2','V3','V4','V5','V6']
-desired_leads = leads # ['II','V2','aVL','aVR'] #['I','II','III','aVR','aVL','aVF','V1','V2','V3','V4','V5','V6']
+# leads = ['I','II','III','aVR','aVL','aVF','V1','V2','V3','V4','V5','V6']
+# desired_leads = leads # ['II','V2','aVL','aVR'] #['I','II','III','aVR','aVL','aVF','V1','V2','V3','V4','V5','V6']
 
 
 def load_patient_to_data_labels(path_to_ecg_data, path_to_pickled_chapman_data, diagnostics, enc,
@@ -147,6 +151,84 @@ def get_fixed_test_train_split_reduced_and_pickle(patient_to_data_label_dict, pa
     with open(save_path, 'wb') as f:
         pickle.dump(test_train_split_dict, f)   
 
+def load_four_lead_patient_data(path_to_ecg_data, path_to_pickled_chapman_data):
+    user_datasets = {}
+    lead_indicies = [1,3,4,7]
+    number_of_all_zero_files = 0
+    for file in tqdm(pathlib.Path(path_to_ecg_data).iterdir()):
+        patient = os.path.basename(file)[:-4]
+        data = pd.read_csv(file, header=None)
+        if check_if_data_is_all_zero(data):
+            number_of_all_zero_files += 1
+            print(patient)
+            continue
+        
+        data_resampled = resample(data, 2500)
+        data_normalised = (data_resampled - data_resampled.mean())/data_resampled.std()
+        four_lead_data = data_normalised[:, lead_indicies]
+        four_lead_data_transposed = np.transpose(four_lead_data)
+        labels = np.array([0,1,2,3])
+        user_datasets[patient] = (four_lead_data_transposed, labels)
+    
+    save_file_name = os.path.join(path_to_pickled_chapman_data, 'four_lead_user_datasets.pickle')
+    with open(save_file_name, 'wb') as f:
+        pickle.dump(user_datasets, f)
+
+    print(f'number of all zero files: {number_of_all_zero_files}')
+
+def load_four_lead_reduced_train_test_users_and_dataset(four_lead_user_datasets, path_to_pickled_chapman_data):
+    patients = four_lead_user_datasets.keys()
+    reduced_patients = random.sample(patients, 100)
+
+    test_patients = random.sample(reduced_patients, 20)
+    train_patients = [patient for patient in reduced_patients if patient not in test_patients]
+
+    test_train_split_dict = {'train': train_patients, 'test': test_patients}
+
+    reduced_user_dataset = {}
+    for test_patient in test_patients:
+        reduced_user_dataset[test_patient] = four_lead_user_datasets[test_patient]
+    for train_patient in train_patients:
+        reduced_user_dataset[train_patient] = four_lead_user_datasets[train_patient]
+
+    train_test_file_path = os.path.join(path_to_pickled_chapman_data, '100_users_reduced_test_train_split_dict.pickle')
+    user_datasets_file_path = os.path.join(path_to_pickled_chapman_data, '100_users_datasets.pickle')
+
+    with open(train_test_file_path, 'wb') as f:
+        pickle.dump(test_train_split_dict, f)
+
+    with open(user_datasets_file_path, 'wb') as f:
+        pickle.dump(reduced_user_dataset, f)
+
+def check_if_data_is_all_zero(data):
+    columns_zero = (data == 0).all()
+    all_zero = (columns_zero == True).all()
+    return all_zero
+
+def testing():
+    with open(path_to_test_train_split_dict, 'rb') as f:
+        test_train_dict = pickle.load(f)
+
+    print(len(test_train_dict['train']))
+    print(len(test_train_dict['test']))
+
+    with open(path_to_four_lead_user_datasets, 'rb') as f:
+        user_d = pickle.load(f)
+
+    print(len(user_d))
+
+def main():
+    # load_four_lead_patient_data(path_to_ecg_data, path_to_pickled_chapman_data)
+    with open(path_to_four_lead_user_datasets, 'rb') as f:
+        user_datasets = pickle.load(f)
+
+    get_fixed_test_train_split_and_pickle(user_datasets, path_to_pickled_chapman_data)
+
+    # load_four_lead_reduced_train_test_users_and_dataset(user_datasets, path_to_pickled_chapman_data)
+    testing()
+
+    
+    
 if __name__ == "__main__":
     # load_patient_to_data_labels(path_to_ecg_data, path_to_pickled_chapman_data, diagnostics_with_dates, label_enc)
     # with open(path_to_patient_to_data_label_dict, 'rb') as f:
@@ -161,7 +243,7 @@ if __name__ == "__main__":
     # print(len(patient_to_data_label_per_row_dict.keys()))
 
     # print()
-    print(list(label_enc.inverse_transform([0,0,0,0,1,1,1,2,2,3])))
+    # print(list(label_enc.inverse_transform([0,0,0,0,1,1,1,2,2,3])))
     # sample_key = random.sample(path_to_patient_to_data_label_dict.keys(), 1)[0]
     # print(path_to_patient_to_data_label_dict[sample_key])
     # print(path_to_patient_to_data_label_dict[sample_key][0].shape)
@@ -178,3 +260,5 @@ if __name__ == "__main__":
     #     reduced_test_train_split_dict = pickle.load(f)
     
     # print(len(reduced_test_train_split_dict['train']), len(reduced_test_train_split_dict['test']))
+    main()
+
