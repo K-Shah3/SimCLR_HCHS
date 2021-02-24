@@ -5,3 +5,5 @@ testing.py
 /test_run_hchs
 /test_run_hchs_small_size
 /hchs_mesa/predictions/20210214-*
+/plots/tsne/hchs
+/DataExploration/hchs/*.pickle
