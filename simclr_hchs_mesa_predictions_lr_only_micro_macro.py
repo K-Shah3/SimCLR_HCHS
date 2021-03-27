@@ -1,4 +1,5 @@
-import pickle5 as pickle 
+# import pickle5 as pickle 
+import pickle
 import scipy.constants
 import datetime
 import tensorflow as tf
@@ -61,7 +62,11 @@ def main(testing_flag, window_size, batch_size, non_testing_simclr_epochs, trans
         working_directory = 'hchs_mesa/'
         if not os.path.exists(working_directory):
             os.makedirs(working_directory)
-
+    transformation_indicies_string = ''.join([str(i) for i in transformation_indices])
+    lr_string = str(initial_learning_rate).replace('.','')
+    name_of_run = f'testing-{testing_flag}-ws-{window_size}-bs-{batch_size}-transformations-{transformation_indicies_string}-lr-{lr_string}-agg-{aggregate}'
+    print(name_of_run)
+    
     dataset_save_path = os.path.join(os.getcwd(), "PickledData", "hchs")
 
     if testing_flag:
@@ -183,7 +188,7 @@ def main(testing_flag, window_size, batch_size, non_testing_simclr_epochs, trans
         plt.plot(epoch_losses)
         plt.ylabel("Loss", fontsize=10)
         plt.xlabel("Epoch", fontsize=10)
-        epoch_save_name = f"{start_time_str}_epoch_loss.png"
+        epoch_save_name = f"{start_time_str}_{name_of_run}_epoch_loss.png"
         plt_save_path = os.path.join(os.getcwd(), "plots", "epoch_loss", "hchs", epoch_save_name)
         plt.savefig(plt_save_path)
         plt.show()
@@ -241,7 +246,7 @@ def main(testing_flag, window_size, batch_size, non_testing_simclr_epochs, trans
         for j, label in enumerate(unique_labels):
             legend.get_texts()[j].set_text(label_list_full_name[label]) 
 
-        tsne_save_name = f"{start_time_str}_tsne.png"
+        tsne_save_name = f"{start_time_str}_{name_of_run}_tsne.png"
         tsne_plt_save_path = os.path.join(os.getcwd(), "plots", "tsne", "hchs", tsne_save_name)
         plt.savefig(tsne_plt_save_path)
         plt.show()
@@ -251,27 +256,14 @@ def main(testing_flag, window_size, batch_size, non_testing_simclr_epochs, trans
 
         #### testing predictions #### 
 
-        # classifiers 
+        # lr classifier
 
-        random_forest_clf = RandomForestClassifier(random_state=42)
         logistic_regression_clf = LogisticRegression(max_iter=10000)
-        svc_clf = SVC(random_state=42)
-        bernoulli_nb_clf = BernoulliNB()
-        sgd_clf = SGDClassifier(loss="hinge", penalty="l2", max_iter=1000)
+        
+        classifier_names = ['logistic_regression']
+        classifiers = [logistic_regression_clf]
 
-        decision_tree_clf = DecisionTreeClassifier(random_state=42)
-        extra_tree_clf = ExtraTreeClassifier(random_state=42, max_leaf_nodes=64)
-        ada_boost_clf = AdaBoostClassifier(
-            DecisionTreeClassifier(max_depth=1), n_estimators=200,
-            algorithm="SAMME.R", learning_rate=0.1, random_state=42)
-        gradient_boosting_clf = GradientBoostingClassifier(random_state=42, learning_rate=1.0, n_estimators=100)
-
-        classifier_names = ['random_forest', 'logistic_regression', 'svc', 'bernoulli_nb', 'sgd', 'decision_tree',
-                            'extra_tree', 'ada_boost', 'gradient_boosting']
-        classifiers = [random_forest_clf, logistic_regression_clf, svc_clf, bernoulli_nb_clf, sgd_clf, decision_tree_clf,
-        extra_tree_clf, ada_boost_clf, gradient_boosting_clf]
-
-        # {disease_name:{classifier_name:[predictions, accuracy, precision, recall, f1, confusion_matrix]}}
+        # {disease_name:{classifier_name:[predictions, accuracy, precision_micro, recall_micro, f1_micro, precision_macro, recall_macro, f1_macro, confusion_matrix]}}
         disease_classifier_results = {}
         # {disease_name:{classifier_name:trained_classifier}}
         disease_trained_classifiers = {}
@@ -284,11 +276,13 @@ def main(testing_flag, window_size, batch_size, non_testing_simclr_epochs, trans
                 print(disease)
                 print(classifier_name)
                 
-                trained_classifier, scaler, predictions, accuracy, precision, recall, f1, confusion_matrix = simclr_predictions.get_prediction_and_scores_from_model_and_classifier_disease_specific(disease, user_datasets, simclr_model, np_train, np_val, np_test, batch_size, train_users, test_users, window_size, path_to_baseline_sueno_merge_no_na, classifier, aggregate=aggregate)
-                print(f'accuracy: {accuracy}, precision: {precision}, recall: {recall}, f1: {f1}')
-                print(f'confusion matrix: {confusion_matrix}')
+                trained_classifier, scaler, predictions, test_y, accuracy, precision_micro, recall_micro, f1_micro, precision_macro, recall_macro, f1_macro, auc_macro_ovr, auc_macro_ovo, confusion_mat = simclr_predictions.get_prediction_and_scores_from_model_and_classifier_disease_specific_f1_micro_f1_macro(disease, user_datasets, simclr_model, np_train, np_val, np_test, batch_size, train_users, test_users, window_size, path_to_baseline_sueno_merge_no_na, classifier, aggregate=aggregate)
+                
+                print(f'accuracy: {accuracy}, precision_micro: {precision_micro}, recall_micro: {recall_micro}, f1_micro: {f1_micro}, precision_macro: {precision_macro}, recall_macro: {recall_macro}, f1_macro: {f1_macro}')
+                print(f'auc scores: macro_ovr - {auc_macro_ovr}, macro_ovo - {auc_macro_ovo}')
+                print(f'confusion matrix: {confusion_mat}')
                 print("---------------")
-                classifier_results[classifier_name] = [predictions, accuracy, precision, recall, f1, confusion_matrix]
+                classifier_results[classifier_name] = [predictions, test_y, accuracy, precision_micro, recall_micro, f1_micro, precision_macro, recall_macro, f1_macro, auc_macro_ovr, auc_macro_ovo, confusion_mat]
                 trained_classifiers_dictionary[classifier_name] = trained_classifier
                 scaler_fit_to_hchs_train_data = scaler
             
@@ -297,7 +291,7 @@ def main(testing_flag, window_size, batch_size, non_testing_simclr_epochs, trans
 
         print(disease_classifier_results.keys())
 
-        disease_classifier_results_directory = os.path.join(working_directory, 'predictions', start_time_str)
+        disease_classifier_results_directory = os.path.join(working_directory, 'predictions', f'{start_time_str}_{name_of_run}')
         if not os.path.exists(disease_classifier_results_directory):
             os.makedirs(disease_classifier_results_directory)
 
@@ -311,7 +305,7 @@ def main(testing_flag, window_size, batch_size, non_testing_simclr_epochs, trans
             if not os.path.exists(disease_classifier_plots_save_path):
                 os.makedirs(disease_classifier_plots_save_path)
 
-            simclr_predictions.plot_prediction_metrics(disease_classifier_results_save_path, disease_classifier_plots_save_path, show=False)
+            simclr_predictions.plot_prediction_metrics_f1_micro_macro(disease_classifier_results_save_path, disease_classifier_plots_save_path, show=False)
 
         print("predicting mesa")
 
@@ -351,7 +345,7 @@ def main(testing_flag, window_size, batch_size, non_testing_simclr_epochs, trans
         )
 
         # generate predictions for each disease and optimised for each metric
-        mesa_disease_metric_optimised_predictions = simclr_predictions.mesa_predictions_from_user_datasets(mesa_user_datasets, mesa_np_train, mesa_np_val, mesa_np_test, mesa_train_users, mesa_test_users, window_size, batch_size, simclr_model, disease_classifier_results, disease_trained_classifiers, scaler_fit_to_hchs_train_data, aggregate=aggregate, number_of_layers=7)
+        mesa_disease_metric_optimised_predictions = simclr_predictions.mesa_predictions_from_user_datasets_f1_micro_macro(mesa_user_datasets, mesa_np_train, mesa_np_val, mesa_np_test, mesa_train_users, mesa_test_users, window_size, batch_size, simclr_model, disease_classifier_results, disease_trained_classifiers, scaler_fit_to_hchs_train_data, aggregate=aggregate, number_of_layers=7)
 
         # save predictions 
 
@@ -362,7 +356,7 @@ def main(testing_flag, window_size, batch_size, non_testing_simclr_epochs, trans
         if plot_flag:
             print("plotting mesa predictions")
             # plot mesa predictions 
-            simclr_predictions.mesa_plot_predictions(mesa_disease_metric_optimised_predictions, disease_classifier_plots_save_path, show=False)
+            simclr_predictions.mesa_plot_predictions_micro_macro(mesa_disease_metric_optimised_predictions, disease_classifier_plots_save_path, show=False)
 
 if __name__ == '__main__':
     testing_flag, window_size, batch_size, non_testing_simclr_epochs, transformation_indices, initial_learning_rate, non_testing_linear_eval_epochs, plot_flag, predict_flag, aggregate = parse_arguments(sys.argv)

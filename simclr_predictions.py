@@ -2,11 +2,12 @@ import numpy as np
 import pandas as pd 
 from collections import Counter
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix, roc_auc_score
 import matplotlib 
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import os
+# import pickle5 as pickle
 import pickle
 import simclr_models
 import hchs_data_pre_processing
@@ -130,6 +131,7 @@ def classify_disease(classifier, train_X, val_X, test_X, train_y, val_y, test_y)
         train_y, val_y, test_y - disease labels for each user 
 
     Returns:
+        truth - true y values fed into classifier
         predictions - predictions of the classifier trained on the user embeddings 
         classifier - classifier trained on X_train data
         scaler - fit to train_X data
@@ -151,7 +153,7 @@ def classify_disease(classifier, train_X, val_X, test_X, train_y, val_y, test_y)
     classifier.fit(train_X_scaled, train_y)
     predictions = classifier.predict(test_X_scaled)
 
-    return predictions, classifier, scaler
+    return predictions, classifier, scaler, test_X_scaled
 
 def prediction_metric_scores(prediction, truth):
     accuracy = accuracy_score(truth, prediction)
@@ -161,6 +163,34 @@ def prediction_metric_scores(prediction, truth):
     confusion_mat = confusion_matrix(truth, prediction)
 
     return accuracy, precision, recall, f1, confusion_mat
+
+def prediction_metric_scores_micro_macro(classifier, prediction, truth, X):
+    accuracy = accuracy_score(truth, prediction)
+    
+    precision_micro = precision_score(truth, prediction, average='micro')
+    recall_micro = recall_score(truth, prediction, average='micro')
+    f1_micro = f1_score(truth, prediction, average='micro')
+
+    precision_macro = precision_score(truth, prediction, average='macro')
+    recall_macro = recall_score(truth, prediction, average='macro')
+    f1_macro = f1_score(truth, prediction, average='macro')
+
+    # auc_macro_ovr = roc_auc_score(truth, classifier.predict_proba(X), average='macro', multi_class='ovr')
+    # auc_macro_ovo = roc_auc_score(truth, classifier.predict_proba(X), average='macro', multi_class='ovo')
+    print(classifier.predict_proba(X))
+    print('-------prediction-------')
+    print(prediction)
+    print('----truth-----')
+    print(truth)
+    print('---X------')
+    print(X)
+    # auc_macro_ovr = roc_auc_score(truth, prediction, average='macro', multi_class='ovr')
+    # auc_macro_ovo = roc_auc_score(truth, prediction, average='macro', multi_class='ovo')
+    auc_macro_ovr = 0
+    auc_macro_ovo = 0
+    confusion_mat = confusion_matrix(truth, prediction)
+
+    return accuracy, precision_micro, recall_micro, f1_micro, precision_macro, recall_macro, f1_macro, auc_macro_ovr, auc_macro_ovo, confusion_mat
 
 def get_prediction_and_scores_from_model_and_classifier_disease_specific(disease, user_datasets, model, np_train, np_val, np_test, batch_size, 
                                     train_users, test_users, window_size, path_to_baseline_sueno_merge_no_na, classifier, aggregate='mean'):
@@ -189,11 +219,46 @@ def get_prediction_and_scores_from_model_and_classifier_disease_specific(disease
     """
     train_X, val_X, test_X, train_y, val_y, test_y = get_train_valid_test_X_y_disease_specific(disease, user_datasets, model, np_train, np_val, np_test, batch_size, train_users, test_users, window_size, path_to_baseline_sueno_merge_no_na, aggregate=aggregate)
 
-    predictions, trained_classifier, scaler = classify_disease(classifier, train_X, val_X, test_X, train_y, val_y, test_y)
+    predictions, trained_classifier, scaler, test_X_scaled = classify_disease(classifier, train_X, val_X, test_X, train_y, val_y, test_y)
 
     accuracy, precision, recall, f1, confusion_matrix = prediction_metric_scores(predictions, test_y)
-
     return trained_classifier, scaler, predictions, accuracy, precision, recall, f1, confusion_matrix
+
+
+def get_prediction_and_scores_from_model_and_classifier_disease_specific_f1_micro_f1_macro(disease, user_datasets, model, np_train, np_val, np_test, batch_size, 
+                                    train_users, test_users, window_size, path_to_baseline_sueno_merge_no_na, classifier, aggregate='mean'):
+    """
+    We predict the diseases that the test set have by first getting user level activations from an intermediate layer of the trained simclr model. We use these user level activations to train simple classifiers
+    Parameters:
+        disease - disease to be predicted (diabetes, hypertension, sleep apnea, metabolic syndrome, insomnia)
+        user_datasets - all data 
+        model - trained simclr model
+        np_train, np_val, np_test - windowed datasets that were used for the simclr model 
+        batch_size - usually 512
+        train_users, test_users - train and test user split 
+        path_to_baseline_sueno_merge_no_na - path to dataset with disease information about each user 
+        classifier - classifier being used to classify disease with the user level activation input 
+        aggregate - metric used to group the window into users - mean, min, max, std, median
+    
+    Returns:
+        trained_classifier - classifier trained on the input data for the particular disease
+        scaler - scaler fit to X train data
+        predictions - condition of each patient in the test set as predicted by the simple classifier 
+        accuracy - how accurate the predictions were 
+        precision_micro - precision of the predictions using micro average
+        recall_micro - recall of the predictions using micro average
+        f1_micro - f1 of the predictions micro mode using micro average
+        precision_macro - precision of the predictions using macro average
+        recall_macro - recall of the predictions using macro average
+        f1_macro - f1 of the predictions micro mode using macro average
+        confusion_matrix - confusion_matrix of the predictions 
+    """
+    train_X, val_X, test_X, train_y, val_y, test_y = get_train_valid_test_X_y_disease_specific(disease, user_datasets, model, np_train, np_val, np_test, batch_size, train_users, test_users, window_size, path_to_baseline_sueno_merge_no_na, aggregate=aggregate)
+
+    predictions, trained_classifier, scaler, test_X_scaled = classify_disease(classifier, train_X, val_X, test_X, train_y, val_y, test_y)
+
+    accuracy, precision_micro, recall_micro, f1_micro, precision_macro, recall_macro, f1_macro, auc_macro_ovr, auc_macro_ovo, confusion_mat = prediction_metric_scores_micro_macro(trained_classifier, predictions, test_y, test_X_scaled)
+    return trained_classifier, scaler, predictions, test_y, accuracy, precision_micro, recall_micro, f1_micro, precision_macro, recall_macro, f1_macro, auc_macro_ovr, auc_macro_ovo, confusion_mat
 
 def plot_prediction_metrics(path_to_prediction_metric_dictionary, path_to_save_figure_folder, show=False):
     """
@@ -207,6 +272,20 @@ def plot_prediction_metrics(path_to_prediction_metric_dictionary, path_to_save_f
         figure_save_name = f'{disease}_prediction_metrics_plot.png'
         figure_save_path = os.path.join(path_to_save_figure_folder, figure_save_name)
         plot_disease_prediction_metrics(disease, classifier_data, figure_save_path, show)
+
+def plot_prediction_metrics_f1_micro_macro(path_to_prediction_metric_dictionary, path_to_save_figure_folder, show=False):
+    """
+    For each disease and for each metric plot the performance of each classifier
+    """
+    with open(path_to_prediction_metric_dictionary, 'rb') as f:
+        disease_predictions = pickle.load(f)
+
+    # {disease_name:{classifier_name:[predictions, accuracy, precision_micro, recall_micro, f1_micro, precision_macro, recall_macro, f1_macro, confusion_matrix]}}
+    for disease, classifier_data in disease_predictions.items():
+        figure_save_name = f'{disease}_prediction_metrics_plot.png'
+        figure_save_path = os.path.join(path_to_save_figure_folder, figure_save_name)
+        plot_disease_prediction_metrics_f1_micro_macro(disease, classifier_data, figure_save_path, show)
+
 
 def plot_disease_prediction_metrics(disease, classifier_data, figure_save_path, show):
     classifier_names = []
@@ -240,6 +319,52 @@ def plot_disease_prediction_metrics(disease, classifier_data, figure_save_path, 
     plt.savefig(figure_save_path)
     plt.show()
 
+def plot_disease_prediction_metrics_f1_micro_macro(disease, classifier_data, figure_save_path, show):
+    classifier_names = []
+    accuracies = []
+    precision_micros = []
+    recall_micros = []
+    f1_micros = []
+    precision_macros = []
+    recall_macros = []
+    f1_macros = []
+
+    for classifier_name, classifier_scores in classifier_data.items():
+        classifier_names.append(classifier_name)
+        accuracies.append(classifier_scores[1])
+        precision_micros.append(classifier_scores[2])
+        recall_micros.append(classifier_scores[3])
+        f1_micros.append(classifier_scores[4])
+        precision_macros.append(classifier_scores[5])
+        recall_macros.append(classifier_scores[6])
+        f1_macros.append(classifier_scores[7])
+    
+    plt.figure(figsize=(10,6))
+    plt.plot(classifier_names, accuracies, label='accuracy')
+    plt.scatter(classifier_names, accuracies, marker='*')
+    plt.plot(classifier_names, precision_micros, label='precision_micro')
+    plt.scatter(classifier_names, precision_micros, marker='s')
+    plt.plot(classifier_names, recall_micros, label='recall_micro')
+    plt.scatter(classifier_names, recall_micros, marker='^')
+    plt.plot(classifier_names, f1_micros, label='f1_micro')
+    plt.scatter(classifier_names, f1_micros, marker='p')
+    plt.plot(classifier_names, precision_macros, label='precision_macro')
+    plt.scatter(classifier_names, precision_macros, marker='s')
+    plt.plot(classifier_names, recall_macros, label='recall_macro')
+    plt.scatter(classifier_names, recall_macros, marker='^')
+    plt.plot(classifier_names, f1_macros, label='f1_macros')
+    plt.scatter(classifier_names, f1_macros, marker='p')
+    
+
+    plt.xticks(rotation=45)
+    title = f'{disease} prediction metrics'
+    plt.title(title)
+
+    plt.legend(fontsize='small')
+
+    plt.savefig(figure_save_path)
+    plt.show()
+
 def get_best_classifier_based_on_metric(disease, metric, disease_classifier_results, disease_trained_classifiers):
     """
     Each disease has several classifiers with corresponding metrics of accuracy, precision, recall and f1
@@ -257,6 +382,37 @@ def get_best_classifier_based_on_metric(disease, metric, disease_classifier_resu
     trained_classifiers_for_disease = disease_trained_classifiers[disease]
 
     metric_to_index_dictionary = {'accuracy':1, 'precision':2, 'recall':3, 'f1':4}
+    index = metric_to_index_dictionary[metric]
+
+    # we can initialise to -1 as none of the metrics can be lower than 0
+    best_metric_seen_so_far = -1
+    best_classifier_seen_so_far = ''
+
+    for classifier_name, results in classifier_results_for_disease.items():
+        if results[index] > best_metric_seen_so_far:
+            best_metric_seen_so_far = results[index]
+            best_classifier_seen_so_far = classifier_name
+
+    return trained_classifiers_for_disease[best_classifier_seen_so_far]
+
+
+def get_best_classifier_based_on_metric_micro_macro(disease, metric, disease_classifier_results, disease_trained_classifiers):
+    """
+    Each disease has several classifiers with corresponding metrics of accuracy, precision, recall and f1
+    Return the best model for a particular disease, based on a particular metric
+    Parameters:
+        disease - one of diabetes, hypertension, sleep_apnea, metabolic_syndrome, insomnia
+        metric - one of accuracy, precision, recall, f1
+        disease_classifier_results - of the form {disease_name:{classifier_name:[predictions, accuracy, precision, recall, f1, confusion_matrix]}}
+        disease_trained_classifiers - of the form {disease_name:{classifier_name:trained_classifier}}
+
+    Returns:
+        trained_classifier - the best classifier for the particular disease and metric
+    """
+    classifier_results_for_disease = disease_classifier_results[disease]
+    trained_classifiers_for_disease = disease_trained_classifiers[disease]
+
+    metric_to_index_dictionary = {'accuracy':1, 'precision_micro':2, 'recall_micro':3, 'f1_micro':4, 'precision_macro':5, 'recall_macro':6, 'f1_macro':7}
     index = metric_to_index_dictionary[metric]
 
     # we can initialise to -1 as none of the metrics can be lower than 0
@@ -315,6 +471,52 @@ def mesa_predictions_from_user_datasets(mesa_user_datasets, mesa_np_train, mesa_
 
     return disease_metric_optimised_predictions
 
+def mesa_predictions_from_user_datasets_f1_micro_macro(mesa_user_datasets, mesa_np_train, mesa_np_val, mesa_np_test, mesa_train_users, mesa_test_users, window_size, batch_size, model, disease_classifier_results, disease_trained_classifiers, scaler, aggregate='mean', number_of_layers=7):
+    """
+    """
+    # we can merge all the train val and test datasets together as we are only using the mesa to test 
+    mesa_train_val_test_user_window_list = hchs_data_pre_processing.get_window_to_user_mapping(mesa_user_datasets, mesa_train_users, mesa_test_users, window_size)
+    mesa_np_test_all = np.concatenate((mesa_np_train[0], mesa_np_val[0], mesa_np_test[0]))
+    mesa_test_user_window_list = mesa_train_val_test_user_window_list[0] + mesa_train_val_test_user_window_list[1] + mesa_train_val_test_user_window_list[2]
+
+    # get embeddings and user level activation from model 
+    intermediate_model = simclr_models.extract_intermediate_model_from_base_model(model, intermediate_layer=number_of_layers)
+    intermediate_model.summary()
+
+    embedding = intermediate_model.predict(mesa_np_test_all, batch_size=batch_size)
+    embedding_dataframe = pd.DataFrame(embedding)
+
+    embedding_dataframe.index = mesa_test_user_window_list
+    if aggregate == 'mean':
+        user_level_activation = embedding_dataframe.groupby(embedding_dataframe.index).mean()
+    elif aggregate == 'std':
+        user_level_activation = embedding_dataframe.groupby(embedding_dataframe.index).std()
+    elif aggregate == 'min':
+        user_level_activation = embedding_dataframe.groupby(embedding_dataframe.index).min()
+    elif aggregate == 'max':
+        user_level_activation = embedding_dataframe.groupby(embedding_dataframe.index).max()
+    else:
+        user_level_activation = embedding_dataframe.groupby(embedding_dataframe.index).median()
+
+    # scale train data based on scaler from hchs data
+    train_X = np.array(user_level_activation.values.tolist())
+    train_X_scaled = scaler.transform(train_X)
+
+    # {disease: {metric: predictions}}
+    disease_metric_optimised_predictions = {}
+    # for each metric and disease determine which is the best classifier that has been trained on 
+    for disease in disease_labels.keys():
+        disease_specific_predictions = {}
+        for metric in ['accuracy', 'precision_micro', 'recall_micro', 'f1_micro', 'precision_macro', 'recall_macro', 'f1_macro']:
+            clf = get_best_classifier_based_on_metric_micro_macro(disease, metric, disease_classifier_results, disease_trained_classifiers)
+            predictions = clf.predict(train_X_scaled)
+            disease_specific_predictions[metric] = predictions
+
+        disease_metric_optimised_predictions[disease] = disease_specific_predictions
+
+    return disease_metric_optimised_predictions
+
+
 
 def mesa_plot_predictions(disease_metric_optimised_predictions, save_directory, show=False):
     """
@@ -359,6 +561,70 @@ def mesa_plot_predictions(disease_metric_optimised_predictions, save_directory, 
             plotting_data[disease_label_word] = label_plotting_values
 
         metrics = ['accuracy', 'precision', 'recall', 'f1']
+        # plotting graph now 
+        plt.figure(figsize=(12,8))
+        bottom_coords = 0
+        plts = []
+        for layer in plotting_data.values():
+            x = plt.bar(metrics, layer, bottom=bottom_coords)
+            plts.append(x)
+            bottom_coords = layer
+        
+        plt.xticks(rotation=45)
+        plt.xlabel('Metrics', fontsize=10)
+        plt.ylabel('Predicted Percentage per Condition', fontsize=10)
+
+        legend_plotting = [x[0] for x in plts]
+        plt.legend(legend_plotting, disease_label_words, fontsize='small')
+
+        save_path = os.path.join(save_directory, f'mesa_predictions_for_{disease}.png')
+        plt.savefig(save_path)
+        plt.show()
+
+
+def mesa_plot_predictions_micro_macro(disease_metric_optimised_predictions, save_directory, show=False):
+    """
+    Given the disease specific and metric optimised predictions plot the number of predictions 
+    """
+    disease_labels = {'diabetes': {1: 'Non-diabetic', 2: 'Pre-diabetic', 3: 'Diabetic'}, 'sleep_apnea': {0: 'No', 1: 'Yes'}, 'hypertension': {0: 'No', 1: 'Yes'}, 'metabolic_syndrome': {0: 'No', 1: 'Yes'}, 'insomnia': {1: 'No clinically significant insomnia', 2: 'Subthreshold insomnia', 3: 'Clinical insomnia'}}
+    # for example disease=diabetes metric_predictions = {'accuracy':[predictions], 'precision':[predictions] etc }
+    for disease, metric_predictions in disease_metric_optimised_predictions.items():
+        # e.g. {1: 'Non-diabetic', 2: 'Pre-diabetic', 3: 'Diabetic'} for diabetes
+        disease_label_dict = disease_labels[disease]
+        # e.g. [1,2,3]
+        disease_label_category_numbers = list(disease_label_dict.keys())
+        # e.g. {'accuracy': {'Non-diabetic':60, 'Pre-diabetic':30, 'Diabetic':10} etc }
+        metric_percentage_dict = {}
+        for metric, predictions in metric_predictions.items():
+            # e.g. {1: 100, 2:50, 3:50} for diabetes
+            count_of_categories = dict(Counter(predictions))
+            for disease_label_category in disease_label_category_numbers:
+                if disease_label_category not in count_of_categories:
+                    count_of_categories[disease_label_category] = 0
+            number_of_predictions = len(predictions)
+            # e.g. {'Non-diabetic':50, 'Pre-diabetic':25, 'Diabetic':25}
+            percentage_per_label = {}
+            for category, count in count_of_categories.items():
+                # if category not in disease label dict skip
+                if category in disease_label_dict:
+                    category_full_name = disease_label_dict[category]
+                else:
+                    continue
+                percentage = count / number_of_predictions * 100
+                percentage_per_label[category_full_name] = percentage 
+
+            metric_percentage_dict[metric] = percentage_per_label
+
+        disease_label_words = list(disease_label_dict.values())
+        # {'Non-diabetic':[60,58,10,60], 'Pre-diabetic':[40,20,60,30], 'Diabetic':[0,22,30,10]}
+        plotting_data = {}
+        for disease_label_word in disease_label_words:
+            label_plotting_values = []
+            for metric, percentage_dict in metric_percentage_dict.items():
+                label_plotting_values.append(percentage_dict[disease_label_word])
+            plotting_data[disease_label_word] = label_plotting_values
+
+        metrics = ['accuracy', 'precision_micro', 'recall_micro', 'f1_micro', 'precision_macro', 'recall_macro', 'f1_macro']
         # plotting graph now 
         plt.figure(figsize=(12,8))
         bottom_coords = 0

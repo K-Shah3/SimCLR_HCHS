@@ -4,6 +4,11 @@ testing.py
 /testing
 /test_run_hchs
 /test_run_hchs_small_size
-/hchs_mesa/predictions/20210214-*
+/hchs_mesa/predictions/2021*
+/hchs_mesa/predictions/2021*
+/chapman/predictions/2021*
+/chapman_testing/
 /plots/tsne/hchs
 /DataExploration/hchs/*.pickle
+/BYOL/__pycache__
+/BYOL/lightning_logs
