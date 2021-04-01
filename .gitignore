@@ -12,3 +12,6 @@ testing.py
 /DataExploration/hchs/*.pickle
 /BYOL/__pycache__
 /BYOL/lightning_logs
+/.tmp.drivedownload
+/BYOL/byol_chapman_testing
+/drawiodiagrams

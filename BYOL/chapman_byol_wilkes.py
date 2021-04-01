@@ -2,7 +2,7 @@ import random
 from typing import Callable, Tuple, Union, Dict, List
 import os
 from os import cpu_count
-import pickle as pickle
+import pickle5 as pickle
 import numpy as np
 from copy import deepcopy
 from itertools import chain
@@ -14,22 +14,31 @@ from torch import nn, Tensor, optim
 import torch.nn.functional as func
 from torchsummary import summary
 from torch.utils.data import DataLoader, Dataset
-# from torchvision.models import resnet18
 import pytorch_lightning as pl
 import tensorflow as tf
+
+import matplotlib as mpl
+mpl.use('Agg')
+import matplotlib.pyplot as plt
+import seaborn as sns
+import sklearn.manifold
+sns.set_context('poster')
 
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix, roc_auc_score
 from sklearn.linear_model import LogisticRegression
 
 
 import byol_chapman_utilities
-import chapman_autoencoder 
+import chapman_autoencoder_wilkes as chapman_autoencoder 
 
 def parse_arguments(args):
     testing_flag = args[1] == 'True'
     batch_size = int(args[2])
+    epoch_number = int(args[3])
+    latent_dim = int(args[4])
+    plotting_flag = args[5] == 'True'
     
-    return testing_flag, batch_size
+    return testing_flag, batch_size, epoch_number, latent_dim, plotting_flag
 
 def get_datasets_from_paths(testing_flag):
     '''Depending on whether or not we are in testing mode unpickle the correct user_datasets,
@@ -66,83 +75,10 @@ def get_datasets_from_paths(testing_flag):
 
     return user_datasets, patient_to_rhythm_dict, test_train_split_dict, working_directory
 
-def resnet_main(testing_flag, batch_size):
-    # get chapman datasets 
-    user_datasets, patient_to_rhythm_dict, test_train_split_dict, working_directory = get_datasets_from_paths(testing_flag)
-    
-    # get 4 unique rhythms
-    unique_rhythms_words = set(list(patient_to_rhythm_dict.values()))
-    # {'AFIB': 0, 'SB': 1, 'SR': 2, 'GSVT': 3}
-    rythm_to_label_encoding = {rhythm : index for index, rhythm in enumerate(unique_rhythms_words)}
 
-    # get train and test datasets and create dataloaders
-    train_chapman_dataset = byol_chapman_utilities.ChapmanDataset(user_datasets, patient_to_rhythm_dict, test_train_split_dict, 'train')
-    test_chapman_dataset = byol_chapman_utilities.ChapmanDataset(user_datasets, patient_to_rhythm_dict, test_train_split_dict, 'test')
-
-    train_loader = DataLoader(
-        train_chapman_dataset,
-        batch_size=batch_size,
-        shuffle=True
-    )
-    val_loader = DataLoader(
-        test_chapman_dataset,
-        batch_size=batch_size,
-    )
-    print('got here')
-    model = resnet18()
-    model.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
-    model_name = 'resnet18'
-
-    # supervised learning before byol 
-    supervised_model = deepcopy(model)
-    supervised = byol_chapman_utilities.SupervisedLightningModule(supervised_model)
-    supervised_trainer = pl.Trainer(max_epochs=25, weights_summary=None)
-    supervised_trainer.fit(supervised, train_loader, val_loader)
-    supervised_accuracy = byol_chapman_utilities.accuracy_from_val_loader_and_model(val_loader, supervised_model)
-
-    # byol training model 
-    byol_model = deepcopy(model)
-    byol = byol_chapman_utilities.BYOL(byol_model, image_size=(2500, 4))
-    byol_trainer = pl.Trainer(
-        max_epochs=10,
-        accumulate_grad_batches=2048 // batch_size,
-        weights_summary=None,
-    )
-    byol_trainer.fit(byol, train_loader, val_loader) 
-
-    # supervised learning again after byol 
-    state_dict = byol_model.state_dict()
-    post_byol_model = deepcopy(model)
-    post_byol_model.load_state_dict(state_dict)
-    post_byol_supervised = byol_chapman_utilities.SupervisedLightningModule(post_byol_model)
-    post_byol_trainer = pl.Trainer(
-        max_epochs=10,
-        accumulate_grad_batches=2048 // 128,
-        weights_summary=None,
-    )
-    post_byol_trainer.fit(post_byol_supervised, train_loader, val_loader)
-    post_byol_accuracy = byol_chapman_utilities.accuracy_from_val_loader_and_model(val_loader, post_byol_model)
-
-    # final results 
-    print(f'supervised accuracy - {supervised_accuracy}')
-    print(f'post byol supervised accuracy - {post_byol_accuracy}')
-
-    save_dict = {'supervised_acc' : supervised_accuracy, 
-                'post_byol_acc' : post_byol_accuracy}
-
-    # save results
-    start_time = datetime.datetime.now()
-    start_time_str = start_time.strftime("%Y%m%d-%H%M%S")
-
-    save_filename = f'{testing_flag}-{batch_size}-{model_name}-{start_time_str}-byol-chapman.pickle'
-    save_path = os.path.join(working_directory, save_filename)
-
-    with open(save_path, 'wb') as f:
-        pickle.dump(save_dict, f)
-
-def autoencoder_main(testing_flag, batch_size, epoch_number):
+def autoencoder_main(testing_flag, batch_size, epoch_number, latent_dim):
     # get trained autoencoder 
-    autoencoder, encoder, decoder = chapman_autoencoder.get_trained_autoencoder(testing_flag)
+    autoencoder, encoder, decoder = chapman_autoencoder.get_trained_autoencoder(testing_flag, latent_dim)
     # we will use the encoder as input into byol 
     model = deepcopy(encoder)
 
@@ -165,7 +101,7 @@ def autoencoder_main(testing_flag, batch_size, epoch_number):
     )
     val_loader = DataLoader(
         test_chapman_dataset,
-        batch_size=batch_size,
+        batch_size=batch_size
     )
 
     # byol training model 
@@ -173,14 +109,13 @@ def autoencoder_main(testing_flag, batch_size, epoch_number):
     byol = byol_chapman_utilities.BYOL(byol_model, image_size=(2500, 4))
     byol_trainer = pl.Trainer(
         max_epochs=epoch_number,
-        accumulate_grad_batches=2048 // batch_size,
-        weights_summary=None,
+        weights_summary=None
     )
     byol_trainer.fit(byol, train_loader, val_loader) 
 
     byol_encoder = byol.encoder
 
-    return byol_encoder, test_chapman_dataset, train_chapman_dataset
+    return byol_encoder, test_chapman_dataset, train_chapman_dataset, working_directory
 
 def testing(testing_flag, batch_size):
     autoencoder, encoder, decoder = chapman_autoencoder.get_trained_autoencoder(testing_flag)
@@ -263,56 +198,60 @@ def downstream_evaluation(byol_encoder, test_chapman_dataset, train_chapman_data
     roc_ovo = roc_auc_score(y_test, log_reg_clf.predict_proba(X_test), multi_class='ovo')
     
     metrics['accuracy'] = accuracy
-    metrics['roc_ovr'] = roc_ovr
-    metrics['roc_ovo'] = roc_ovo
+    metrics['auc_ovr'] = roc_ovr
+    metrics['auc_ovo'] = roc_ovo
 
     return metrics
 
-def multiple_segment(testing_flag, batch_size, epoch_number):
-    autoencoder, encoder, decoder = chapman_autoencoder.get_trained_autoencoder(testing_flag)
-    # we will use the encoder as input into byol 
-    model = deepcopy(encoder)
+def latent_dim_plot(testing_flag, batch_size, epoch_number, latent_dims):
+    '''Create plot that shows how varying the latent dimension of BYOL affects the AUC score achieved while keeping 
+    batch size and the epoch number the same'''
+    auc_scores = []
+    for latent_dim in latent_dims:
+        byol_encoder, test_chapman_dataset, train_chapman_dataset, working_directory = autoencoder_main(testing_flag, batch_size, epoch_number, latent_dim)
+        metrics = downstream_evaluation(byol_encoder, test_chapman_dataset, train_chapman_dataset)
+        print(metrics)
+        auc_scores.append(metrics['auc_ovr'])
 
-    # get chapman datasets 
-    user_datasets, patient_to_rhythm_dict, test_train_split_dict, working_directory = get_datasets_from_paths(testing_flag)
-    
-    # get 4 unique rhythms
-    unique_rhythms_words = set(list(patient_to_rhythm_dict.values()))
-    # {'AFIB': 0, 'SB': 1, 'SR': 2, 'GSVT': 3}
-    rythm_to_label_encoding = {rhythm : index for index, rhythm in enumerate(unique_rhythms_words)}
+    fig, ax = plt.subplots(figsize=(6, 5))
+    latent_dim_labels = [str(latent_dim) for latent_dim in latent_dims]
+    ax.bar(latent_dim_labels, auc_scores, color='magenta', width=0.3)
+    ax.set_xlabel('BYOL Latent Dimension', fontsize=10)
+    ax.tick_params(axis='both', labelsize=8)
+    ax.set_ylabel('AUC score',  fontsize=10)
+    ax.set_ylim(top=1)
+    ax.set_title('Plot to show the relationship between \n latent dimension and AUC scores',  fontsize=12)
 
-    # get train and test datasets and create dataloaders
-    train_chapman_dataset = byol_chapman_utilities.ChapmanDataset(user_datasets, patient_to_rhythm_dict, test_train_split_dict, 'train')
-    test_chapman_dataset = byol_chapman_utilities.ChapmanDataset(user_datasets, patient_to_rhythm_dict, test_train_split_dict, 'test')
+    latent_dim_save_name = '-'.join(latent_dim_labels)
+    save_name = f'latent_dim_auc_{testing_flag}_{batch_size}_{latent_dim_save_name}_chapman.png'
+    save_directory = os.path.join(working_directory, 'plots')
+    if not os.path.exists(save_directory):
+        os.makedirs(save_directory)
 
-    train_loader = DataLoader(
-        train_chapman_dataset,
-        batch_size=batch_size,
-        shuffle=True
-    )
-    val_loader = DataLoader(
-        test_chapman_dataset,
-        batch_size=batch_size,
-    )
+    save_path = os.path.join(save_directory, save_name)
 
-    # byol training model 
-    byol_model = deepcopy(model)
-    byol = byol_chapman_utilities.BYOL_MS(byol_model, image_size=(2500, 4))
-    byol_trainer = pl.Trainer(
-        max_epochs=epoch_number,
-        accumulate_grad_batches=2048 // batch_size,
-        weights_summary=None,
-    )
-    byol_trainer.fit(byol, train_loader, val_loader) 
+    plt.savefig(save_path)
 
-    byol_encoder = byol.encoder
-
-    return byol_encoder, test_chapman_dataset, train_chapman_dataset
 
 if __name__ == '__main__':
     # parse arguments
-    # testing_flag, batch_size = parse_arguments(sys.argv)
-    # byol_encoder, test_chapman_dataset, train_chapman_dataset= autoencoder_main(True, 128, 2)
-    # metrics = downstream_evaluation(byol_encoder, test_chapman_dataset, train_chapman_dataset)
-    # print(metrics)
-    multiple_segment(True, 128, 3)
+    testing_flag, batch_size, epoch_number, latent_dim, plotting_flag = parse_arguments(sys.argv)
+    
+    start_time = datetime.datetime.now()
+    start_time_str = start_time.strftime("%Y%m%d-%H%M%S")
+    print(start_time_str)
+    
+    if not plotting_flag:
+        print('proceeding as normal')
+        byol_encoder, test_chapman_dataset, train_chapman_dataset, working_directory = autoencoder_main(testing_flag, batch_size, epoch_number, latent_dim)
+        metrics = downstream_evaluation(byol_encoder, test_chapman_dataset, train_chapman_dataset)
+        print(metrics)
+        save_name = f'{testing_flag}-{batch_size}-{epoch_number}-{latent_dim}-chapman-metrics.pickle'
+        print(save_name)
+        save_path = os.path.join(working_directory, save_name)
+        with open(save_path, 'wb') as f:
+            pickle.dump(metrics, f)
+    else:
+        print('plotting')
+        latent_dims = [32, 64, 128, 256, 512]
+        latent_dim_plot(testing_flag, batch_size, epoch_number, latent_dims)
