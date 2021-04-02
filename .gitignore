@@ -15,3 +15,5 @@ testing.py
 /.tmp.drivedownload
 /BYOL/byol_chapman_testing
 /drawiodiagrams
+BYOL/byol_chapman/plots/latent_dim_auc_False_True_128_256_32-64-128-256-512_chapman.png
+BYOL/byol_chapman/plots/projection_dim_auc_False_True_128_256_32-64-128-256-512_chapman.png

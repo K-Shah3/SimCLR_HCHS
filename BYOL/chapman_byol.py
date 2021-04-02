@@ -268,8 +268,8 @@ def downstream_evaluation(byol_encoder, test_chapman_dataset, train_chapman_data
 
     return metrics
 
-def multiple_segment(testing_flag, batch_size, epoch_number):
-    autoencoder, encoder, decoder = chapman_autoencoder.get_trained_autoencoder(testing_flag)
+def multiple_segment_main(testing_flag, batch_size, epoch_number):
+    autoencoder, encoder, decoder = chapman_autoencoder.get_trained_autoencoder_ms(testing_flag)
     # we will use the encoder as input into byol 
     model = deepcopy(encoder)
 
@@ -297,7 +297,7 @@ def multiple_segment(testing_flag, batch_size, epoch_number):
 
     # byol training model 
     byol_model = deepcopy(model)
-    byol = byol_chapman_utilities.BYOL_MS(byol_model, image_size=(2500, 4))
+    byol = byol_chapman_utilities.BYOL_MS(byol_model, image_size=(1250, 4))
     byol_trainer = pl.Trainer(
         max_epochs=epoch_number,
         accumulate_grad_batches=2048 // batch_size,
@@ -309,10 +309,63 @@ def multiple_segment(testing_flag, batch_size, epoch_number):
 
     return byol_encoder, test_chapman_dataset, train_chapman_dataset
 
+def downstream_evaluation_ms(byol_encoder, test_chapman_dataset, train_chapman_dataset):
+    train_loader = DataLoader(train_chapman_dataset, batch_size=len(train_chapman_dataset))
+    test_loader = DataLoader(test_chapman_dataset, batch_size=len(test_chapman_dataset))
+    for data_label in train_loader:
+        data, label = data_label
+        data1, data2 = torch.split(data, 1250, dim=2)
+        encoded_data1, encoded_data2 = byol_encoder(data1.float()), byol_encoder(data2.float())
+        encoded_data1_numpy, encoded_data2_numpy = encoded_data1.detach().numpy(), encoded_data2.detach().numpy()
+        # take mean of encoded segments 
+        byol_train_numpy_x = np.mean(np.array([encoded_data1_numpy,encoded_data2_numpy]), axis=0)
+        byol_train_numpy_y = label.detach().numpy()
+
+    X_train, y_train = byol_train_numpy_x, byol_train_numpy_y
+
+    for data_label in test_loader:
+        data, label = data_label
+        data1, data2 = torch.split(data, 1250, dim=2)
+        encoded_data1, encoded_data2 = byol_encoder(data1.float()), byol_encoder(data2.float())
+        encoded_data1_numpy, encoded_data2_numpy = encoded_data1.detach().numpy(), encoded_data2.detach().numpy()
+        # take mean of encoded segments 
+        byol_test_numpy_x = np.mean(np.array([encoded_data1_numpy,encoded_data2_numpy]), axis=0)
+        byol_test_numpy_y = label.detach().numpy()
+
+    X_test, y_test = byol_test_numpy_x, byol_test_numpy_y
+
+    log_reg_clf = LogisticRegression(multi_class='multinomial', solver='lbfgs')
+    log_reg_clf.fit(X_train, y_train)
+    y_pred = log_reg_clf.predict(X_test)
+
+    averages = ['micro', 'macro']
+    metrics = {}
+    for average in averages:
+        f1 = f1_score(y_test, y_pred, average=average)
+        precision = precision_score(y_test, y_pred, average=average)
+        recall = recall_score(y_test, y_pred, average=average)
+        metrics[f'f1_{average}'] = f1
+        metrics[f'precision_{average}'] = precision
+        metrics[f'recall_{average}'] = recall
+    
+
+    accuracy = accuracy_score(y_test, y_pred)
+    roc_ovr = roc_auc_score(y_test, log_reg_clf.predict_proba(X_test), multi_class='ovr')
+    roc_ovo = roc_auc_score(y_test, log_reg_clf.predict_proba(X_test), multi_class='ovo')
+    
+    metrics['accuracy'] = accuracy
+    metrics['roc_ovr'] = roc_ovr
+    metrics['roc_ovo'] = roc_ovo
+
+    return metrics
+
+
 if __name__ == '__main__':
     # parse arguments
     # testing_flag, batch_size = parse_arguments(sys.argv)
-    # byol_encoder, test_chapman_dataset, train_chapman_dataset= autoencoder_main(True, 128, 2)
+    # byol_encoder, test_chapman_dataset, train_chapman_dataset = autoencoder_main(True, 128, 2)
     # metrics = downstream_evaluation(byol_encoder, test_chapman_dataset, train_chapman_dataset)
     # print(metrics)
-    multiple_segment(True, 128, 3)
+    byol_encoder, test_chapman_dataset, train_chapman_dataset = multiple_segment_main(True, 128, 3)
+    metrics = downstream_evaluation_ms(byol_encoder, test_chapman_dataset, train_chapman_dataset)
+    print(metrics)

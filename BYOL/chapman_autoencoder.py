@@ -168,6 +168,81 @@ def get_trained_autoencoder(testing_flag, latent_dim=512):
         print(f'val_loss: {loss.item()}')
 
     return autoencoder, encoder, decoder
+
+def get_trained_autoencoder_ms(testing_flag, latent_dim=512):
+    dataset_save_path = os.path.join(os.path.dirname(os.getcwd()), "PickledData", "chapman")
+    path_to_patient_to_rhythm_dict = os.path.join(dataset_save_path, 'patient_to_rhythm_dict.pickle')
+
+    # paths to user datasets with no nan values
+    if testing_flag:
+        path_to_user_datasets = os.path.join(dataset_save_path, 'reduced_four_lead_user_datasets_no_nan.pickle')
+        path_to_test_train_split_dict = os.path.join(dataset_save_path, 'reduced_test_train_split_dict_no_nan.pickle')
+    else:
+        path_to_user_datasets  = os.path.join(dataset_save_path, 'four_lead_user_datasets_no_nan.pickle')
+        path_to_test_train_split_dict = os.path.join(dataset_save_path, "test_train_split_dict_no_nan.pickle")
+
+    with open(path_to_user_datasets, 'rb') as f:
+        user_datasets = pickle.load(f)
+
+    with open(path_to_test_train_split_dict, 'rb') as f:
+        test_train_split_dict = pickle.load(f)
+    
+    train_user_list = test_train_split_dict['train']
+    test_user_list = test_train_split_dict['test']
+
+    with open(path_to_patient_to_rhythm_dict, 'rb') as f:
+        patient_to_rhythm_dict = pickle.load(f)
+    
+    train_chapman_dataset = byol_chapman_utilities.ChapmanDataset(user_datasets, patient_to_rhythm_dict, test_train_split_dict, 'train')
+    test_chapman_dataset = byol_chapman_utilities.ChapmanDataset(user_datasets, patient_to_rhythm_dict, test_train_split_dict, 'test')
+
+    batch_size = 128
+
+    train_loader = DataLoader(
+        train_chapman_dataset,
+        batch_size=batch_size,
+        shuffle=True
+    )
+    val_loader = DataLoader(
+        test_chapman_dataset,
+        batch_size=len(test_chapman_dataset),
+    )
+    # train autoencoder
+    model = autoencoder(latent_dim, x_dim=1250, y_dim=4)
+    criterion = nn.MSELoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+    num_epochs = 10
+    for epoch in range(num_epochs):
+        for data_label in train_loader:
+            data, _ = data_label 
+            data1, data2 = torch.split(data, 1250, dim=2)
+            for d in [data1, data2]:
+                input_data = Variable(d)
+                loss_data = d.view(d.size(0), -1)
+                output = model(input_data.float())
+                loss = criterion(output, loss_data.float())
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+                if epoch % 10 == 0:
+                    print('epoch [{}/{}], loss:{:.4f}'.format(epoch + 1, num_epochs, loss.item()))
+
+    # get validation 
+    encoder = model.encoder
+    decoder = model.decoder 
+
+    for data_label in val_loader:
+        data, _ = data_label 
+        data1, data2 = torch.split(data, 1250, dim=2)
+        for d in [data1, data2]:
+            input_data = Variable(d)
+            loss_data = d.view(d.size(0), -1)
+            encoded_data = encoder(input_data.float())
+            decoded_data = decoder(encoded_data.float())
+            loss = criterion(decoded_data.float(), loss_data.float())
+            print(f'val_loss: {loss.item()}')
+
+    return autoencoder, encoder, decoder
     
 def chapman_autoencoder_latent_features(testing_flag, latent_dim, epoch_number):
     x_train, x_test = get_normalised_training_testing_data(testing_flag)

@@ -2,7 +2,6 @@ import random
 from typing import Callable, Tuple, Union, Dict, List
 import os
 from os import cpu_count
-import pickle as pickle
 import numpy as np
 from copy import deepcopy
 from itertools import chain
@@ -59,7 +58,6 @@ def mlp(dim: int, projection_size: int = 256, hidden_size: int = 4096) -> nn.Mod
         nn.ReLU(inplace=True),
         nn.Linear(hidden_size, projection_size),
     )
-
 
 class EncoderWrapper(nn.Module):
     def __init__(
@@ -190,7 +188,6 @@ class BYOL(pl.LightningModule):
         val_loss = sum(x["loss"] for x in outputs) / len(outputs)
         self.log("val_loss", val_loss.item())
 
-
 class BYOL_MS(pl.LightningModule):
     def __init__(
         self,
@@ -240,10 +237,11 @@ class BYOL_MS(pl.LightningModule):
     def training_step(self, batch, *_) -> Dict[str, Union[Tensor, Dict]]:
         x = batch[0]
         with torch.no_grad():
-            split = torch.split(x, x.size()[1]//2, dim=1)
+            half_size = x.size()[2] // 2
+            split = torch.split(x, half_size, dim=2)
             x1, x2 = split[0], split[1]
+            x1, x2 = self.augment(x1), self.augment(x2)
 
-            
         pred1, pred2 = self.forward(x1.float()), self.forward(x2.float())
         with torch.no_grad():
             targ1, targ2 = self.target(x1.float()), self.target(x2.float())
@@ -260,8 +258,7 @@ class BYOL_MS(pl.LightningModule):
         half_size = x.size()[2] // 2
         split = torch.split(x, half_size, dim=2)
         x1, x2 = split[0], split[1]
-        print(x1.size())
-        print(x2.size())
+        x1, x2 = self.augment(x1), self.augment(x2)
         pred1, pred2 = self.forward(x1.float()), self.forward(x2.float())
         targ1, targ2 = self.target(x1.float()), self.target(x2.float())
         loss = torch.mean(normalized_mse(pred1, targ2) + normalized_mse(pred2, targ1))
