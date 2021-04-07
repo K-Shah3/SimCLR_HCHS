@@ -259,8 +259,9 @@ def downstream_evaluation(byol_encoder, test_chapman_dataset, train_chapman_data
     
 
     accuracy = accuracy_score(y_test, y_pred)
-    roc_ovr = roc_auc_score(y_test, log_reg_clf.predict_proba(X_test), multi_class='ovr')
-    roc_ovo = roc_auc_score(y_test, log_reg_clf.predict_proba(X_test), multi_class='ovo')
+    y_proba = log_reg_clf.predict_proba(X_test)
+    roc_ovr = roc_auc_score(y_test, y_proba, multi_class='ovr')
+    roc_ovo = roc_auc_score(y_test, y_proba, multi_class='ovo')
     
     metrics['accuracy'] = accuracy
     metrics['roc_ovr'] = roc_ovr
@@ -350,8 +351,9 @@ def downstream_evaluation_ms(byol_encoder, test_chapman_dataset, train_chapman_d
     
 
     accuracy = accuracy_score(y_test, y_pred)
-    roc_ovr = roc_auc_score(y_test, log_reg_clf.predict_proba(X_test), multi_class='ovr')
-    roc_ovo = roc_auc_score(y_test, log_reg_clf.predict_proba(X_test), multi_class='ovo')
+    y_proba = log_reg_clf.predict_proba(X_test)
+    roc_ovr = roc_auc_score(y_test, y_proba, multi_class='ovr')
+    roc_ovo = roc_auc_score(y_test, y_proba, multi_class='ovo')
     
     metrics['accuracy'] = accuracy
     metrics['roc_ovr'] = roc_ovr

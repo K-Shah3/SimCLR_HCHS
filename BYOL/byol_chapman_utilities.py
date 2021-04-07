@@ -319,8 +319,8 @@ def get_mean_std_min_max_from_user_list_format(user_datasets, train_users):
             list or set of users (corresponding to the user_ids) from which the mean and std are extracted
 
     Return:
-        (means, stds)
-            means and stds of the particular users
+        (means, stds, mins, maxs)
+            means, standard deviations, minimums and maximums of the particular users
             shape: (num_channels)
 
     """

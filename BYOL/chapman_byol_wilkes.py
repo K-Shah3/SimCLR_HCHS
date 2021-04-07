@@ -39,8 +39,9 @@ def parse_arguments(args):
     projection_dim = int(args[5])
     plotting_flag = args[6] == 'True'
     ms_flag = args[7] == 'True'
+    comparing_flag = args[8] == 'True'
     
-    return testing_flag, batch_size, epoch_number, latent_dim, projection_dim, plotting_flag, ms_flag
+    return testing_flag, batch_size, epoch_number, latent_dim, projection_dim, plotting_flag, ms_flag, comparing_flag
 
 def get_datasets_from_paths(testing_flag):
     '''Depending on whether or not we are in testing mode unpickle the correct user_datasets,
@@ -108,6 +109,7 @@ def testing(testing_flag, batch_size):
         max_epochs=10,
         accumulate_grad_batches=2048 // batch_size,
         weights_summary=None,
+        logger=False
     )
     byol_trainer.fit(byol, train_loader, val_loader)
 
@@ -152,7 +154,8 @@ def autoencoder_main(testing_flag, batch_size, epoch_number, latent_dim, project
     byol = byol_chapman_utilities.BYOL(byol_model, image_size=(2500, 4), projection_size=projection_dim)
     byol_trainer = pl.Trainer(
         max_epochs=epoch_number,
-        weights_summary=None
+        weights_summary=None,
+        logger=False
     )
     byol_trainer.fit(byol, train_loader, val_loader) 
 
@@ -238,6 +241,7 @@ def multiple_segment_main(testing_flag, batch_size, epoch_number, latent_dim, pr
         max_epochs=epoch_number,
         accumulate_grad_batches=2048 // batch_size,
         weights_summary=None,
+        logger=False
     )
     byol_trainer.fit(byol, train_loader, val_loader) 
 
@@ -354,6 +358,7 @@ def projection_dim_plot(testing_flag, ms_flag, autoencoder_function, downstream_
 
 def compare_byol_and_ms_plots(testing_flag):
     # vary epochs 
+    print('epochs')
     epochs = [1, 3, 5, 10, 20]
     epoch_byol_auc = []
     epoch_byol_ms_auc = []
@@ -368,6 +373,7 @@ def compare_byol_and_ms_plots(testing_flag):
         epoch_byol_ms_auc.append(metrics['auc_ovr'])
 
     # vary batch size
+    print('bs')
     batch_sizes = [16, 32, 64, 128, 256]
     bs_byol_auc = []
     bs_byol_ms_auc = []
@@ -382,6 +388,7 @@ def compare_byol_and_ms_plots(testing_flag):
         bs_byol_ms_auc.append(metrics['auc_ovr'])
 
     # vary latent dims
+    print('latent dims')
     latent_dims = [32, 64, 128, 256, 512]
     latent_dim_byol_auc = []
     latent_dim_byol_ms_auc = []
@@ -396,6 +403,7 @@ def compare_byol_and_ms_plots(testing_flag):
         latent_dim_byol_ms_auc.append(metrics['auc_ovr']) 
 
     # vary projection dims
+    print('projection dims')
     projection_dims = [32, 64, 128, 256, 512]
     projection_dim_byol_auc = []
     projection_dim_byol_ms_auc = []
@@ -464,13 +472,30 @@ def compare_byol_and_ms_plots(testing_flag):
         os.makedirs(save_directory)
 
     save_path = os.path.join(save_directory, save_name)
-
+    print(save_path)
     plt.savefig(save_path)
 
+def compare_byol_and_ms(testing_flag, batch_size, epoch_number, latent_dim, projection_dim):
+    # normal byol
+    byol_encoder, test_chapman_dataset, train_chapman_dataset, working_directory = autoencoder_main(testing_flag, batch_size, epoch_number, latent_dim, projection_dim)
+    byol_metrics = downstream_evaluation(byol_encoder, test_chapman_dataset, train_chapman_dataset)
+    print(f'byol metrics: {byol_metrics}')
+    # byol with ms 
+    byol_encoder_ms, test_chapman_dataset, train_chapman_dataset, working_directory = multiple_segment_main(testing_flag, batch_size, epoch_number, latent_dim, projection_dim)
+    byol_metrics_ms = downstream_evaluation_ms(byol_encoder_ms, test_chapman_dataset, train_chapman_dataset)
+    print(f'byol ms metrics: {byol_metrics_ms}')
+
+    combined_metrics = {'byol': byol_metrics, 'byol ms': byol_metrics_ms}
+    print(f'combined_metrics: {combined_metrics}')
+    save_name = f'{batch_size}-{epoch_number}-{latent_dim}-{projection_dim}-comparing-byol-and-ms.pickle'
+    save_path = os.path.join(working_directory, save_name)
+    print(save_path)
+    with open(save_path, 'wb') as f:
+        pickle.dump(combined_metrics, f) 
 
 if __name__ == '__main__':
     # parse arguments - latent dim is for autoencoder dimension, projection dim is for BYOL mlp projection 
-    testing_flag, batch_size, epoch_number, latent_dim, projection_dim, plotting_flag, ms_flag = parse_arguments(sys.argv)
+    testing_flag, batch_size, epoch_number, latent_dim, projection_dim, plotting_flag, ms_flag, comparing_flag = parse_arguments(sys.argv)
     
     start_time = datetime.datetime.now()
     start_time_str = start_time.strftime("%Y%m%d-%H%M%S")
@@ -483,17 +508,21 @@ if __name__ == '__main__':
         autoencoder_function = autoencoder_main
         downstream_function = downstream_evaluation
     
-    if not plotting_flag:
-        print('proceeding as normal')
-        byol_encoder, test_chapman_dataset, train_chapman_dataset, working_directory = autoencoder_function(testing_flag, batch_size, epoch_number, latent_dim, projection_dim)
-        save_name = f'{testing_flag}-{ms_flag}-{batch_size}-{epoch_number}-{latent_dim}-{projection_dim}-chapman-metrics.pickle'
-        print(save_name)
-        metrics = downstream_function(byol_encoder, test_chapman_dataset, train_chapman_dataset)
-        print(metrics)
-        save_path = os.path.join(working_directory, save_name)
-        with open(save_path, 'wb') as f:
-            pickle.dump(metrics, f)
-
+    if comparing_flag:
+        compare_byol_and_ms(testing_flag, batch_size, epoch_number, latent_dim, projection_dim)
     else:
-        print('plotting')
-        compare_byol_and_ms_plots(testing_flag)
+        if not plotting_flag:
+            print('proceeding as normal')
+            byol_encoder, test_chapman_dataset, train_chapman_dataset, working_directory = autoencoder_function(testing_flag, batch_size, epoch_number, latent_dim, projection_dim)
+            save_name = f'{testing_flag}-{ms_flag}-{batch_size}-{epoch_number}-{latent_dim}-{projection_dim}-chapman-metrics.pickle'
+            print(save_name)
+            metrics = downstream_function(byol_encoder, test_chapman_dataset, train_chapman_dataset)
+            print(metrics)
+            save_path = os.path.join(working_directory, save_name)
+            with open(save_path, 'wb') as f:
+                pickle.dump(metrics, f)
+
+        else:
+            print('plotting')
+            compare_byol_and_ms_plots(testing_flag)
+            print('finished')

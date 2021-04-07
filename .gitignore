@@ -17,3 +17,13 @@ testing.py
 /drawiodiagrams
 BYOL/byol_chapman/plots/latent_dim_auc_False_True_128_256_32-64-128-256-512_chapman.png
 BYOL/byol_chapman/plots/projection_dim_auc_False_True_128_256_32-64-128-256-512_chapman.png
+/BYOL/checkpoints
+/BYOL/byol_hchs/20210406-004737-False-128-20-256-512-hchs-combined-metrics.pickle
+/BYOL/byol_hchs/20210406-005025-False-128-30-512-256-hchs-combined-metrics.pickle
+/BYOL/byol_hchs/20210406-004538-False-128-10-256-256-hchs-combined-metrics.pickle
+/BYOL/byol_mesa/20210406-004504-False-128-10-256-256-mesa-combined-metrics.pickle
+/BYOL/byol_mesa/20210406-004752-False-128-20-256-512-mesa-combined-metrics.pickle
+/BYOL/byol_mesa/read_results.py
+/BYOL/byol_mesa/20210406-004945-False-128-30-512-256-mesa-combined-metrics.pickle
+/BYOL/byol_hchs/read_results.py
+/BYOL/byol_chapman/read_results.py

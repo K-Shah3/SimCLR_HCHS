@@ -4,6 +4,7 @@ import numpy as np
 import pickle
 import pathlib
 import random
+import tqdm
 random.seed(42)
 # adding something for the sake of it
 
@@ -287,14 +288,70 @@ def get_fixed_test_train_users_and_user_datasets_and_pickle(pid_to_data_label_di
     with open(save_path_users_dict, 'wb') as g:
         pickle.dump(reduced_test_train_users_dict, g)
 
+def check_if_data_is_all_zero(data):
+    columns_zero = (data == 0).all()
+    all_zero = (columns_zero == True).all()
+    return all_zero
+
+def load_disease_user_dataset(path_to_data, path_to_pid_to_disease_array, path_to_pickled_hchs_data, disease):
+    with open(path_to_pid_to_disease_array, 'rb') as f:
+        pid_to_disease_array = pickle.load(f)
+
+    pid_to_data_dict = {}
+    i = 0
+    number_skipped = 0
+    for file in tqdm.tqdm(pathlib.Path(path_to_data).iterdir()):
+        filename = os.path.basename(file)
+        pid = get_pid_from_filename(filename)
+        data = pd.read_csv(file)
+        processed_data = extract_columns_of_interest(data)
+        if processed_data is None:
+            number_skipped += 1
+            print(f'{pid} was None')
+            continue
+        processed_data = processed_data.to_numpy()
+        # check if data all zero
+        if check_if_data_is_all_zero(processed_data):
+            print(f'{pid} has all zero data')
+            number_skipped += 1
+            continue
+        # check if data has NaN
+        if np.isnan(processed_data).any():
+            print(f'{pid} has NaN data')
+            number_skipped += 1
+            continue
+
+        disease_label = pid_to_disease_array[pid_to_disease_array['pid'] == int(pid)][disease].values[0]
+
+        pid_to_data_dict[pid] = [processed_data, disease_label]
+
+    print(f'number of skipped files: {number_skipped}')
+    save_name = f'{disease}_user_datasets.pickle'
+    print(save_name)
+    save_path = os.path.join(path_to_pickled_hchs_data, save_name)
+    with open(save_path, 'wb') as f:
+        pickle.dump(pid_to_data_dict, f)
+
     
     
+def extract_columns_of_interest(data):
+    columns_of_interest = ["activity", "whitelight", "bluelight", "greenlight", "redlight", "interval"]
+    data_label_dataset = data[[c for c in data.columns if c in columns_of_interest]]
+    data_label_dataset = data_label_dataset[data_label_dataset["interval"] != "EXCLUD"]
+    data_label_dataset = data_label_dataset.dropna()
+    
+    if data_label_dataset.empty:
+        return 
+    
+    label_column = ["interval"]
+
+    return data_label_dataset[[c for c in columns_of_interest if c != 'interval']]
 
 if __name__ == "__main__":
     # load_data_and_active_labels(path_to_actigraphy_data, path_to_pickled_hchs_data)
     # path_to_pid_to_data_label_dict = path_to_pickled_hchs_data + "\\pid_to_data_label_dict.pickle"
-    with open(path_to_data_label_dict_no_time_column, 'rb') as f:
-        pid_to_data_label_dict = pickle.load(f)
+    # with open(path_to_data_label_dict_no_time_column, 'rb') as f:
+    #     pid_to_data_label_dict = pickle.load(f)
 
     # # print(pid_to_data_label_dict)
     # print("done loading data_label dict")
@@ -337,18 +394,22 @@ if __name__ == "__main__":
 
     # print(condition_to_label_dict)
 
-    get_fixed_test_train_users_and_user_datasets_and_pickle(pid_to_data_label_dict, path_to_pickled_hchs_data)
+    # get_fixed_test_train_users_and_user_datasets_and_pickle(pid_to_data_label_dict, path_to_pickled_hchs_data)
 
-    with open(path_to_users_dataset_100, 'rb') as f:
-        user_dataset_100 = pickle.load(f)
+    # with open(path_to_users_dataset_100, 'rb') as f:
+    #     user_dataset_100 = pickle.load(f)
 
-    print(len(user_dataset_100.keys()))
+    # print(len(user_dataset_100.keys()))
 
-    with open(path_to_test_train_users_100, 'rb') as f:
-        test_train_users_100 = pickle.load(f)
+    # with open(path_to_test_train_users_100, 'rb') as f:
+    #     test_train_users_100 = pickle.load(f)
 
-    print(len(test_train_users_100['train']))
-    print(len(test_train_users_100['test']))
+    # print(len(test_train_users_100['train']))
+    # print(len(test_train_users_100['test']))
 
-    for key in test_train_users_100['test']:
-        print(user_dataset_100[key][0].shape)
+    # for key in test_train_users_100['test']:
+    #     print(user_dataset_100[key][0])
+
+    # testing(path_to_actigraphy_data, path_to_pid_to_disease_array, 'diabetes')
+    for disease in ['hypertension', 'diabetes', 'sleep_apnea', 'metabolic_syndrome', 'insomnia']:
+        load_disease_user_dataset(path_to_actigraphy_data, path_to_pid_to_disease_array, path_to_pickled_hchs_data, disease)
