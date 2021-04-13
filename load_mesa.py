@@ -5,6 +5,7 @@ import pickle
 import pathlib
 import random
 import tqdm
+import math
 random.seed(42)
 
 path_to_mesa_dataset = os.path.join(os.path.dirname(os.getcwd()), "Datasets\\MesaData\\mesa")
@@ -221,15 +222,20 @@ if __name__ == "__main__":
     with open(os.path.join(path_to_pickled_mesa_data, 'insomnia_user_datasets.pickle'), 'rb') as f:
         insomnia_user_datasets = pickle.load(f)
 
-    get_fixed_test_train_split_reduced_and_pickle(sleep_apnea_user_datasets, path_to_pickled_mesa_data)
+    # get_fixed_test_train_split_reduced_and_pickle(sleep_apnea_user_datasets, path_to_pickled_mesa_data)
 
-    with open(path_to_test_train_split_reduced_dict, 'rb') as f:
-        test_train_split_dict = pickle.load(f)
+    for patient, data_label in sleep_apnea_user_datasets.items():
+        data, label = data_label
+        if not (label == 0 or label == 1):
+            print(f'{patient} : {label}')
 
-    total = len(test_train_split_dict['train']) + len(test_train_split_dict['test'])
-    print(total)
-    print(len(sleep_apnea_user_datasets))
-    print(len(insomnia_user_datasets))
+    # with open(path_to_test_train_split_reduced_dict, 'rb') as f:
+    #     test_train_split_dict = pickle.load(f)
+
+    # total = len(test_train_split_dict['train']) + len(test_train_split_dict['test'])
+    # print(total)
+    # print(len(sleep_apnea_user_datasets))
+    # print(len(insomnia_user_datasets))
 
     
 

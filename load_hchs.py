@@ -411,5 +411,16 @@ if __name__ == "__main__":
     #     print(user_dataset_100[key][0])
 
     # testing(path_to_actigraphy_data, path_to_pid_to_disease_array, 'diabetes')
-    for disease in ['hypertension', 'diabetes', 'sleep_apnea', 'metabolic_syndrome', 'insomnia']:
-        load_disease_user_dataset(path_to_actigraphy_data, path_to_pid_to_disease_array, path_to_pickled_hchs_data, disease)
+    # for disease in ['hypertension', 'diabetes', 'sleep_apnea', 'metabolic_syndrome', 'insomnia']:
+    #     load_disease_user_dataset(path_to_actigraphy_data, path_to_pid_to_disease_array, path_to_pickled_hchs_data, disease)
+
+    with open(os.path.join(path_to_pickled_hchs_data, 'metabolic_syndrome_user_datasets.pickle'), 'rb') as f:
+        metabolic_syndrome_user_datasets = pickle.load(f)
+
+    print(len(metabolic_syndrome_user_datasets))
+    labels = set()
+    for user, data_label in metabolic_syndrome_user_datasets.items():
+        data, label = data_label
+        if not (label == 0.0 or label == 1.0):
+            print(f'{user} : {label}')
+            continue

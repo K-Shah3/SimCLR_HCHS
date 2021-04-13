@@ -167,13 +167,20 @@ def main(testing_flag, window_size, batch_size, non_testing_simclr_epochs, trans
         simclr_model = tf.keras.models.load_model(simclr_model_save_path)
         trained_classifier, scaler, predictions, accuracy, precision_micro, recall_micro, f1_micro, precision_macro, recall_macro, f1_macro, auc, confusion_mat = simclr_chapman_predictions.get_prediction_and_scores_from_model_rhythm_f1_micro_f1_macro(user_datasets, path_to_patient_to_rhythm_dict, simclr_model, np_train, np_val, np_test, batch_size, train_users, test_users, window_size, logistic_regression_clf, aggregate=aggregate)
 
-        results = [accuracy, precision_micro, recall_micro, f1_micro, precision_macro, recall_macro, f1_macro, auc, confusion_mat]
+        results = {'accuracy': accuracy, 'precision_micro': precision_micro, 'recall_micro': recall_micro,
+                    'f1_micro': f1_micro, 'precision_macro': precision_macro, 'recall_macro': recall_macro,
+                    'f1_macro': f1_macro, 'auc': auc, 'confusion_mat': confusion_mat}
+        
+        for metric in results.keys():
+            print(f'{metric}: {results[metric]}') 
 
-        results_directory = os.path.join(working_directory, 'predictions', f'{start_time_str}_{name_of_run}')
+        results_directory = os.path.join(working_directory, 'predictions')
         if not os.path.exists(results_directory):
             os.makedirs(results_directory)
 
-        results_path = os.path.join(results_directory, 'lr_results.pickle')
+        save_name = f'{start_time_str}_{name_of_run}_results.pickle'
+        results_path = os.path.join(results_directory, save_name)
+
         with open(results_path, 'wb') as f:
             pickle.dump(results, f)
 
