@@ -2,7 +2,8 @@ import random
 from typing import Callable, Tuple, Union, Dict, List
 import os
 from os import cpu_count
-import pickle5 as pickle
+# import pickle5 as pickle
+import pickle 
 import numpy as np
 from copy import deepcopy
 from itertools import chain
@@ -85,13 +86,35 @@ def get_normalised_training_testing_data(testing_flag):
 class autoencoder(nn.Module):
     def __init__(self, latent_dim, x_dim=2500, y_dim=4):
         super(autoencoder, self).__init__()
+        # self.encoder = nn.Sequential(
+        #     nn.Flatten(),
+        #     nn.Linear(x_dim*y_dim, latent_dim),
+        #     nn.Sigmoid())
+        # self.decoder = nn.Sequential(
+        #     nn.Linear(latent_dim, x_dim*y_dim),
+        #     nn.Sigmoid())
         self.encoder = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(x_dim*y_dim, latent_dim),
-            nn.Sigmoid())
+            nn.Linear(x_dim*y_dim, 2046),
+            nn.ReLU(),
+            nn.Linear(2046, 1024),
+            nn.ReLU(),
+            nn.Linear(1024, 512),
+            nn.ReLU(),
+            nn.Linear(512, latent_dim),
+            nn.Sigmoid()
+        )
+
         self.decoder = nn.Sequential(
-            nn.Linear(latent_dim, x_dim*y_dim),
-            nn.Sigmoid())
+            nn.Linear(latent_dim, 512),
+            nn.ReLU(),
+            nn.Linear(512, 1024),
+            nn.ReLU(),
+            nn.Linear(1024, 2048),
+            nn.ReLU(),
+            nn.Linear(2048, x_dim*y_dim),
+            nn.Sigmoid()
+        )
 
     def forward(self, x):
         x = self.encoder(x)

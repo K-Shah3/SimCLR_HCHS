@@ -217,10 +217,16 @@ def testing(testing_flag, batch_size):
     byol_trainer.fit(byol, train_loader, val_loader)
 
     byol_encoder = byol.encoder
+    state_dict = byol_model.state_dict()
+    new_model = deepcopy(encoder)
+    new_model.load_state_dict(state_dict)
 
     for data_label in val_loader:
         data, label = data_label
         byol_encoded_data = byol_encoder(data.float())
+        byol_new_model_data = new_model(data.float())
+        print(f'byol encoder data shape: {byol_encoded_data.size()}')
+        print(f'byol state dict model shape: {byol_new_model_data.size()}')
         print(f'byol encoded size {byol_encoded_data.size()}')
         print(label)
 
@@ -368,6 +374,8 @@ if __name__ == '__main__':
     # byol_encoder, test_chapman_dataset, train_chapman_dataset = autoencoder_main(True, 128, 2)
     # metrics = downstream_evaluation(byol_encoder, test_chapman_dataset, train_chapman_dataset)
     # print(metrics)
-    byol_encoder, test_chapman_dataset, train_chapman_dataset = multiple_segment_main(True, 128, 3)
-    metrics = downstream_evaluation_ms(byol_encoder, test_chapman_dataset, train_chapman_dataset)
-    print(metrics)
+    # byol_encoder, test_chapman_dataset, train_chapman_dataset = multiple_segment_main(True, 128, 3)
+    
+    # metrics = downstream_evaluation_ms(byol_encoder, test_chapman_dataset, train_chapman_dataset)
+    # print(metrics)
+    testing(True, 64)

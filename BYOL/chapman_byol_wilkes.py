@@ -2,7 +2,8 @@ import random
 from typing import Callable, Tuple, Union, Dict, List
 import os
 from os import cpu_count
-import pickle5 as pickle
+# import pickle5 as pickle
+import pickle 
 import numpy as np
 from copy import deepcopy
 from itertools import chain
@@ -57,6 +58,10 @@ def get_datasets_from_paths(testing_flag):
     dataset_save_path = os.path.join(os.path.dirname(os.getcwd()), "PickledData", "chapman")
     path_to_patient_to_rhythm_dict = os.path.join(dataset_save_path, 'patient_to_rhythm_dict.pickle')
 
+    path_to_embeddings = os.path.join(os.path.dirname(os.getcwd()), "embeddings", "chapman", "cardiac", "byol")
+    if not os.path.exists(path_to_embeddings):
+        os.makedirs(path_to_embeddings)
+
     # paths to user datasets with no nan values
     if testing_flag:
         path_to_user_datasets = os.path.join(dataset_save_path, 'reduced_four_lead_user_datasets_no_nan.pickle')
@@ -76,14 +81,14 @@ def get_datasets_from_paths(testing_flag):
     with open(path_to_test_train_split_dict, 'rb') as f:
         test_train_split_dict = pickle.load(f)
 
-    return user_datasets, patient_to_rhythm_dict, test_train_split_dict, working_directory
+    return user_datasets, patient_to_rhythm_dict, test_train_split_dict, working_directory, path_to_embeddings
 
 def testing(testing_flag, batch_size):
     autoencoder, encoder, decoder = chapman_autoencoder.get_trained_autoencoder(testing_flag)
     model = deepcopy(encoder)
 
     # get chapman datasets 
-    user_datasets, patient_to_rhythm_dict, test_train_split_dict, working_directory = get_datasets_from_paths(testing_flag)
+    user_datasets, patient_to_rhythm_dict, test_train_split_dict, working_directory, path_to_embeddings = get_datasets_from_paths(testing_flag)
     
     # get 4 unique rhythms
     unique_rhythms_words = set(list(patient_to_rhythm_dict.values()))
@@ -113,11 +118,16 @@ def testing(testing_flag, batch_size):
     )
     byol_trainer.fit(byol, train_loader, val_loader)
 
-    byol_encoder = byol.encoder
+    state_dict = byol_model.state_dict()
+    byol_encoder = deepcopy(encoder)
+    byol_encoder.load_state_dict(state_dict)
 
     for data_label in val_loader:
         data, label = data_label
         byol_encoded_data = byol_encoder(data.float())
+        byol_new_model_data = new_model(data.float())
+        print(f'byol encoder data shape: {byol_encoded_data.size()}')
+        print(f'byol state dict model shape: {byol_new_model_data.size()}')
         print(f'byol encoded size {byol_encoded_data.size()}')
         print(label)
 
@@ -128,7 +138,7 @@ def autoencoder_main(testing_flag, batch_size, epoch_number, latent_dim, project
     model = deepcopy(encoder)
 
     # get chapman datasets 
-    user_datasets, patient_to_rhythm_dict, test_train_split_dict, working_directory = get_datasets_from_paths(testing_flag)
+    user_datasets, patient_to_rhythm_dict, test_train_split_dict, working_directory, path_to_embeddings = get_datasets_from_paths(testing_flag)
     
     # get 4 unique rhythms
     unique_rhythms_words = set(list(patient_to_rhythm_dict.values()))
@@ -159,9 +169,11 @@ def autoencoder_main(testing_flag, batch_size, epoch_number, latent_dim, project
     )
     byol_trainer.fit(byol, train_loader, val_loader) 
 
-    byol_encoder = byol.encoder
+    state_dict = byol_model.state_dict()
+    byol_encoder = deepcopy(encoder)
+    byol_encoder.load_state_dict(state_dict)
 
-    return byol_encoder, test_chapman_dataset, train_chapman_dataset, working_directory
+    return byol_encoder, test_chapman_dataset, train_chapman_dataset, working_directory, path_to_embeddings
 
 def downstream_evaluation(byol_encoder, test_chapman_dataset, train_chapman_dataset):
     train_loader = DataLoader(train_chapman_dataset, batch_size=len(train_chapman_dataset))
@@ -196,16 +208,23 @@ def downstream_evaluation(byol_encoder, test_chapman_dataset, train_chapman_data
         metrics[f'precision_{average}'] = precision
         metrics[f'recall_{average}'] = recall
     
-
     accuracy = accuracy_score(y_test, y_pred)
-    roc_ovr = roc_auc_score(y_test, log_reg_clf.predict_proba(X_test), multi_class='ovr')
-    roc_ovo = roc_auc_score(y_test, log_reg_clf.predict_proba(X_test), multi_class='ovo')
+    y_proba = log_reg_clf.predict_proba(X_test)
+    roc_ovr = roc_auc_score(y_test, y_proba , multi_class='ovr')
+    roc_ovo = roc_auc_score(y_test, y_proba, multi_class='ovo')
     
     metrics['accuracy'] = accuracy
     metrics['auc_ovr'] = roc_ovr
     metrics['auc_ovo'] = roc_ovo
 
-    return metrics
+    middle_macro, half_micro, mean_macro, std_macro, middle_micro, half_micro, mean_micro, std_micro = get_confidence_interval_auc(y_test, y_proba)
+    # test different percentage training 
+    percentages, auc_ovo_scores, auc_ovr_scores = different_percentage_training(X_train, X_test, y_train, y_test)
+
+    # save train and test embeddings and labels
+
+
+    return metrics, middle_macro, half_micro, mean_macro, std_macro, middle_micro, half_micro, mean_micro, std_micro, X_train, X_test, y_train, y_test
 
 def multiple_segment_main(testing_flag, batch_size, epoch_number, latent_dim, projection_dim):
     autoencoder, encoder, decoder = chapman_autoencoder.get_trained_autoencoder_ms(testing_flag, latent_dim)
@@ -213,7 +232,7 @@ def multiple_segment_main(testing_flag, batch_size, epoch_number, latent_dim, pr
     model = deepcopy(encoder)
 
     # get chapman datasets 
-    user_datasets, patient_to_rhythm_dict, test_train_split_dict, working_directory = get_datasets_from_paths(testing_flag)
+    user_datasets, patient_to_rhythm_dict, test_train_split_dict, working_directory, path_to_embeddings = get_datasets_from_paths(testing_flag)
     
     # get 4 unique rhythms
     unique_rhythms_words = set(list(patient_to_rhythm_dict.values()))
@@ -245,9 +264,96 @@ def multiple_segment_main(testing_flag, batch_size, epoch_number, latent_dim, pr
     )
     byol_trainer.fit(byol, train_loader, val_loader) 
 
-    byol_encoder = byol.encoder
+    state_dict = byol_model.state_dict()
+    byol_encoder = deepcopy(encoder)
+    byol_encoder.load_state_dict(state_dict)
 
-    return byol_encoder, test_chapman_dataset, train_chapman_dataset, working_directory
+    return byol_encoder, test_chapman_dataset, train_chapman_dataset, working_directory, path_to_embeddings
+
+def print_auc_intervals(middle_ovo, half_ovo, mean_ovo, std_ovo, middle_ovr, half_ovr, mean_ovr, std_ovr):
+    '''Print auc intervals in the following format:
+    mean +/- std
+    median +/- half_range'''
+    print(f"    auc ovo middle half: {middle_ovo:.2f} +/- {half_ovo:.2f}")
+    print(f"    auc ovo mean std: {mean_ovo:.2f} +/- {std_ovo:.2f}")
+    print(f"    auc ovr middle half: {middle_ovr:.2f} +/- {half_ovr:.2f}")
+    print(f"    auc ovr mean std: {mean_ovr:.2f} +/- {std_ovr:.2f}")
+
+def get_confidence_interval_auc(y_true, y_pred, n_bootstraps=500):
+    '''Using bootstrap with replacement calculate the f1 micro and macro scores n_bootstrap number of times to get the 
+    median at the 95% confidence intervals'''
+    np.random.seed(1234)
+    rng=np.random.RandomState(1234)
+    bootstrapped_auc_ovo_scores = []
+    bootstrapped_auc_ovr_scores = []
+    for _ in range(n_bootstraps):
+        # bootstrap by sampling with replacement on the prediction indices 
+        indices = rng.random_integers(0, len(y_pred) - 1, len(y_pred))
+        # we need at least one positive and one negative sample for ROC AUC 
+        if len(np.unique(y_true[indices])) < 2:
+            # reject the sample
+            continue 
+
+        auc_ovo = roc_auc_score(y_true[indices], y_pred[indices], multi_class='ovo')
+        auc_ovr = roc_auc_score(y_true[indices], y_pred[indices], multi_class='ovr')
+        bootstrapped_auc_ovo_scores.append(auc_ovo)
+        bootstrapped_auc_ovr_scores.append(auc_ovr)
+
+    sorted_auc_ovo_scores = np.array(bootstrapped_auc_ovo_scores)
+    sorted_auc_ovo_scores.sort()
+    sorted_auc_ovr_scores = np.array(bootstrapped_auc_ovr_scores)
+    sorted_auc_ovr_scores.sort()
+
+    lower_ovo = sorted_auc_ovo_scores[int(0.05 * len(sorted_auc_ovo_scores))]
+    upper_ovo = sorted_auc_ovo_scores[int(0.95 * len(sorted_auc_ovo_scores))]
+    middle_ovo = (lower_ovo + upper_ovo) / 2
+    half_ovo = upper_ovo - middle_ovo
+    mean_ovo = sorted_auc_ovo_scores.mean()
+    std_ovo = sorted_auc_ovo_scores.std()
+
+    lower_ovr = sorted_auc_ovr_scores[int(0.05 * len(sorted_auc_ovr_scores))]
+    upper_ovr = sorted_auc_ovr_scores[int(0.95 * len(sorted_auc_ovr_scores))]
+    middle_ovr = (lower_ovr + upper_ovr) / 2
+    half_ovr = upper_ovr - middle_ovr
+    mean_ovr = sorted_auc_ovr_scores.mean()
+    std_ovr = sorted_auc_ovr_scores.std()
+
+    return middle_ovo, half_ovo, mean_ovo, std_ovo, middle_ovr, half_ovr, mean_ovr, std_ovr 
+
+def different_percentage_training(X_train, X_test, y_train, y_test):
+    '''Given train and test representations with labelled data, use different percentages of the train data to 
+    train the logistic regression classifier'''
+    percentages = [1.0]
+    train_length = X_train.shape[0]
+    auc_ovo_scores = []
+    auc_ovr_scores = []
+    for percentage in percentages:
+        log_reg_clf = LogisticRegression(multi_class='multinomial', solver='lbfgs')
+        # randomly select subsection of X_test to train the classifier with 
+        number_of_rows = int(percentage*train_length)
+        idx = [0]
+        while len(np.unique(y_train[idx])) < 2:
+            idx = np.random.choice(train_length, number_of_rows, replace=False)
+        new_X_train = X_train[idx, :]
+        new_y_train = y_train[idx]
+        log_reg_clf.fit(new_X_train, new_y_train)
+        # predict X_test with the trained classifier
+        y_proba = log_reg_clf.predict_proba(X_test)
+        auc_ovo = roc_auc_score(y_test, y_proba, multiclass='ovo')
+        auc_ovr = roc_auc_score(y_test, y_proba, multiclass='ovr')
+        auc_ovo_scores.append(auc_ovo)
+        auc_ovr_scores.append(auc_ovr)
+
+    for percentage, auc_ovo, auc_ovr in zip(percentages, auc_ovo_scores, auc_ovr_scores):
+        print(f'training percentage: {percentage}')
+        print(f'   auc ovo: {auc_ovo}')
+        print(f'   auc ovr: {auc_ovr}')
+
+    print(percentages)
+    print(auc_ovo_scores)
+    print(auc_ovr_scores)
+    
+    return percentages, auc_ovo_scores, auc_ovr_scores
 
 def downstream_evaluation_ms(byol_encoder, test_chapman_dataset, train_chapman_dataset):
     train_loader = DataLoader(train_chapman_dataset, batch_size=len(train_chapman_dataset))
@@ -289,22 +395,28 @@ def downstream_evaluation_ms(byol_encoder, test_chapman_dataset, train_chapman_d
         metrics[f'recall_{average}'] = recall
     
     accuracy = accuracy_score(y_test, y_pred)
-    roc_ovr = roc_auc_score(y_test, log_reg_clf.predict_proba(X_test), multi_class='ovr')
-    roc_ovo = roc_auc_score(y_test, log_reg_clf.predict_proba(X_test), multi_class='ovo')
+    y_proba = log_reg_clf.predict_proba(X_test)
+    roc_ovr = roc_auc_score(y_test, y_proba, multi_class='ovr')
+    roc_ovo = roc_auc_score(y_test, y_proba, multi_class='ovo')
     
     metrics['accuracy'] = accuracy
     metrics['auc_ovr'] = roc_ovr
     metrics['auc_ovo'] = roc_ovo
 
-    return metrics
+    middle_macro, half_micro, mean_macro, std_macro, middle_micro, half_micro, mean_micro, std_micro = get_confidence_interval_auc(y_test, y_proba)
+    # test different percentage training 
+    percentages, auc_ovo_scores, auc_ovr_scores = different_percentage_training(X_train, X_test, y_train, y_test)
+
+    return metrics, middle_macro, half_micro, mean_macro, std_macro, middle_micro, half_micro, mean_micro, std_micro, X_train, X_test, y_train, y_test
 
 def latent_dim_plot(testing_flag, ms_flag, autoencoder_function, downstream_function, batch_size, epoch_number, latent_dims, projection_dim):
     '''Create plot that shows how varying the latent dimension of BYOL affects the AUC score achieved while keeping 
     batch size and the epoch number the same'''
     auc_scores = []
+    auc_confidence_scores = []
     for latent_dim in latent_dims:
-        byol_encoder, test_chapman_dataset, train_chapman_dataset, working_directory = autoencoder_function(testing_flag, batch_size, epoch_number, latent_dim, projection_dim)
-        metrics = downstream_function(byol_encoder, test_chapman_dataset, train_chapman_dataset)
+        byol_encoder, test_chapman_dataset, train_chapman_dataset, working_directory, path_to_embeddings = autoencoder_function(testing_flag, batch_size, epoch_number, latent_dim, projection_dim)
+        metrics, middle_macro, half_micro, mean_macro, std_macro, middle_micro, half_micro, mean_micro, std_micro, X_train, X_test, y_train, y_test = downstream_function(byol_encoder, test_chapman_dataset, train_chapman_dataset)
         print(metrics)
         auc_scores.append(metrics['auc_ovr'])
 
@@ -332,9 +444,10 @@ def projection_dim_plot(testing_flag, ms_flag, autoencoder_function, downstream_
     batch size and the epoch number the same'''
     auc_scores = []
     for projection_dim in projection_dims:
-        byol_encoder, test_chapman_dataset, train_chapman_dataset, working_directory = autoencoder_function(testing_flag, batch_size, epoch_number, latent_dim, projection_dim)
-        metrics = downstream_function(byol_encoder, test_chapman_dataset, train_chapman_dataset)
+        byol_encoder, test_chapman_dataset, train_chapman_dataset, working_directory, path_to_embeddings = autoencoder_function(testing_flag, batch_size, epoch_number, latent_dim, projection_dim)
+        metrics, middle_macro, half_micro, mean_macro, std_macro, middle_micro, half_micro, mean_micro, std_micro, X_train, X_test, y_train, y_test = downstream_function(byol_encoder, test_chapman_dataset, train_chapman_dataset)
         print(metrics)
+        print_auc_intervals(middle_macro, half_micro, mean_macro, std_macro, middle_micro, half_micro, mean_micro, std_micro)
         auc_scores.append(metrics['auc_ovr'])
 
     fig, ax = plt.subplots(figsize=(6, 5))
@@ -364,12 +477,12 @@ def compare_byol_and_ms_plots(testing_flag):
     epoch_byol_ms_auc = []
     for epoch in epochs:
         # normal byol
-        byol_encoder, test_chapman_dataset, train_chapman_dataset, working_directory = autoencoder_main(testing_flag, batch_size=128, epoch_number=epoch, latent_dim=256, projection_dim=256)
-        metrics = downstream_evaluation(byol_encoder, test_chapman_dataset, train_chapman_dataset)
+        byol_encoder, test_chapman_dataset, train_chapman_dataset, working_directory, path_to_embeddings = autoencoder_main(testing_flag, batch_size=128, epoch_number=epoch, latent_dim=256, projection_dim=256)
+        metrics, middle_macro, half_micro, mean_macro, std_macro, middle_micro, half_micro, mean_micro, std_micro, X_train, X_test, y_train, y_test = downstream_evaluation(byol_encoder, test_chapman_dataset, train_chapman_dataset)
         epoch_byol_auc.append(metrics['auc_ovr'])
         # byol ms
-        byol_encoder, test_chapman_dataset, train_chapman_dataset, working_directory = multiple_segment_main(testing_flag, batch_size=128, epoch_number=epoch, latent_dim=256, projection_dim=256)
-        metrics = downstream_evaluation_ms(byol_encoder, test_chapman_dataset, train_chapman_dataset)
+        byol_encoder, test_chapman_dataset, train_chapman_dataset, working_directory, path_to_embeddings = multiple_segment_main(testing_flag, batch_size=128, epoch_number=epoch, latent_dim=256, projection_dim=256)
+        metrics, middle_macro, half_micro, mean_macro, std_macro, middle_micro, half_micro, mean_micro, std_micro, X_train, X_test, y_train, y_test = downstream_evaluation_ms(byol_encoder, test_chapman_dataset, train_chapman_dataset)
         epoch_byol_ms_auc.append(metrics['auc_ovr'])
 
     # vary batch size
@@ -379,12 +492,12 @@ def compare_byol_and_ms_plots(testing_flag):
     bs_byol_ms_auc = []
     for batch_size in batch_sizes:
         # normal byol
-        byol_encoder, test_chapman_dataset, train_chapman_dataset, working_directory = autoencoder_main(testing_flag, batch_size=batch_size, epoch_number=3, latent_dim=256, projection_dim=256)
-        metrics = downstream_evaluation(byol_encoder, test_chapman_dataset, train_chapman_dataset)
+        byol_encoder, test_chapman_dataset, train_chapman_dataset, working_directory, path_to_embeddings = autoencoder_main(testing_flag, batch_size=batch_size, epoch_number=3, latent_dim=256, projection_dim=256)
+        metrics, middle_macro, half_micro, mean_macro, std_macro, middle_micro, half_micro, mean_micro, std_micro, X_train, X_test, y_train, y_test = downstream_evaluation(byol_encoder, test_chapman_dataset, train_chapman_dataset)
         bs_byol_auc.append(metrics['auc_ovr'])
         # byol ms
         byol_encoder, test_chapman_dataset, train_chapman_dataset, working_directory = multiple_segment_main(testing_flag, batch_size=batch_size, epoch_number=3, latent_dim=256, projection_dim=256)
-        metrics = downstream_evaluation_ms(byol_encoder, test_chapman_dataset, train_chapman_dataset)
+        metrics, middle_macro, half_micro, mean_macro, std_macro, middle_micro, half_micro, mean_micro, std_micro, X_train, X_test, y_train, y_test = downstream_evaluation_ms(byol_encoder, test_chapman_dataset, train_chapman_dataset)
         bs_byol_ms_auc.append(metrics['auc_ovr'])
 
     # vary latent dims
@@ -394,12 +507,12 @@ def compare_byol_and_ms_plots(testing_flag):
     latent_dim_byol_ms_auc = []
     for latent_dim in latent_dims:
         # normal byol
-        byol_encoder, test_chapman_dataset, train_chapman_dataset, working_directory = autoencoder_main(testing_flag, batch_size=128, epoch_number=3, latent_dim=latent_dim, projection_dim=256)
-        metrics = downstream_evaluation(byol_encoder, test_chapman_dataset, train_chapman_dataset)
+        byol_encoder, test_chapman_dataset, train_chapman_dataset, working_directory, path_to_embeddings = autoencoder_main(testing_flag, batch_size=128, epoch_number=3, latent_dim=latent_dim, projection_dim=256)
+        metrics, middle_macro, half_micro, mean_macro, std_macro, middle_micro, half_micro, mean_micro, std_micro, X_train, X_test, y_train, y_test = downstream_evaluation(byol_encoder, test_chapman_dataset, train_chapman_dataset)
         latent_dim_byol_auc.append(metrics['auc_ovr'])
         # byol ms
-        byol_encoder, test_chapman_dataset, train_chapman_dataset, working_directory = multiple_segment_main(testing_flag, batch_size=128, epoch_number=3, latent_dim=latent_dim, projection_dim=256)
-        metrics = downstream_evaluation_ms(byol_encoder, test_chapman_dataset, train_chapman_dataset)
+        byol_encoder, test_chapman_dataset, train_chapman_dataset, working_directory, path_to_embeddings = multiple_segment_main(testing_flag, batch_size=128, epoch_number=3, latent_dim=latent_dim, projection_dim=256)
+        metrics, middle_macro, half_micro, mean_macro, std_macro, middle_micro, half_micro, mean_micro, std_micro, X_train, X_test, y_train, y_test = downstream_evaluation_ms(byol_encoder, test_chapman_dataset, train_chapman_dataset)
         latent_dim_byol_ms_auc.append(metrics['auc_ovr']) 
 
     # vary projection dims
@@ -409,12 +522,12 @@ def compare_byol_and_ms_plots(testing_flag):
     projection_dim_byol_ms_auc = []
     for projection_dim in projection_dims:
         # normal byol
-        byol_encoder, test_chapman_dataset, train_chapman_dataset, working_directory = autoencoder_main(testing_flag, batch_size=128, epoch_number=3, latent_dim=256, projection_dim=projection_dim)
-        metrics = downstream_evaluation(byol_encoder, test_chapman_dataset, train_chapman_dataset)
+        byol_encoder, test_chapman_dataset, train_chapman_dataset, working_directory, path_to_embeddings = autoencoder_main(testing_flag, batch_size=128, epoch_number=3, latent_dim=256, projection_dim=projection_dim)
+        metrics, middle_macro, half_micro, mean_macro, std_macro, middle_micro, half_micro, mean_micro, std_micro, X_train, X_test, y_train, y_test = downstream_evaluation(byol_encoder, test_chapman_dataset, train_chapman_dataset)
         projection_dim_byol_auc.append(metrics['auc_ovr'])
         # byol ms
-        byol_encoder, test_chapman_dataset, train_chapman_dataset, working_directory = multiple_segment_main(testing_flag, batch_size=128, epoch_number=3, latent_dim=256, projection_dim=projection_dim)
-        metrics = downstream_evaluation_ms(byol_encoder, test_chapman_dataset, train_chapman_dataset)
+        byol_encoder, test_chapman_dataset, train_chapman_dataset, working_directory, path_to_embeddings = multiple_segment_main(testing_flag, batch_size=128, epoch_number=3, latent_dim=256, projection_dim=projection_dim)
+        metrics, middle_macro, half_micro, mean_macro, std_macro, middle_micro, half_micro, mean_micro, std_micro, X_train, X_test, y_train, y_test = downstream_evaluation_ms(byol_encoder, test_chapman_dataset, train_chapman_dataset)
         projection_dim_byol_ms_auc.append(metrics['auc_ovr'])
 
     # plot 
@@ -477,26 +590,45 @@ def compare_byol_and_ms_plots(testing_flag):
 
 def compare_byol_and_ms(testing_flag, batch_size, epoch_number, latent_dim, projection_dim):
     # normal byol
-    byol_encoder, test_chapman_dataset, train_chapman_dataset, working_directory = autoencoder_main(testing_flag, batch_size, epoch_number, latent_dim, projection_dim)
-    byol_metrics = downstream_evaluation(byol_encoder, test_chapman_dataset, train_chapman_dataset)
-    print(f'byol metrics: {byol_metrics}')
+    byol_encoder, test_chapman_dataset, train_chapman_dataset, working_directory, path_to_embeddings = autoencoder_main(testing_flag, batch_size, epoch_number, latent_dim, projection_dim)
+    byol_metrics, middle_macro, half_micro, mean_macro, std_macro, middle_micro, half_micro, mean_micro, std_micro, X_train, X_test, y_train, y_test = downstream_evaluation(byol_encoder, test_chapman_dataset, train_chapman_dataset)
+    
     # byol with ms 
-    byol_encoder_ms, test_chapman_dataset, train_chapman_dataset, working_directory = multiple_segment_main(testing_flag, batch_size, epoch_number, latent_dim, projection_dim)
-    byol_metrics_ms = downstream_evaluation_ms(byol_encoder_ms, test_chapman_dataset, train_chapman_dataset)
-    print(f'byol ms metrics: {byol_metrics_ms}')
+    byol_encoder_ms, test_chapman_dataset, train_chapman_dataset, working_directory, path_to_embeddings = multiple_segment_main(testing_flag, batch_size, epoch_number, latent_dim, projection_dim)
+    byol_metrics_ms, middle_macro_ms, half_micro_ms, mean_macro_ms, std_macro_ms, middle_micro_ms, half_micro_ms, mean_micro_ms, std_micro_ms, X_train, X_test, y_train, y_test = downstream_evaluation_ms(byol_encoder_ms, test_chapman_dataset, train_chapman_dataset)
+    print(f'byol metrics:')
+    print(f"    AUC OVR: {byol_metrics['auc_ovr']}")
+    print(f"    AUC OVO: {byol_metrics['auc_ovo']}")
+    print_auc_intervals(middle_macro, half_micro, mean_macro, std_macro, middle_micro, half_micro, mean_micro, std_micro)
+    
+    print(f'byol ms metrics:')
+    print(f"    AUC OVR: {byol_metrics_ms['auc_ovr']}")
+    print(f"    AUC OVO: {byol_metrics_ms['auc_ovo']}")
+    print_auc_intervals(middle_macro_ms, half_micro_ms, mean_macro_ms, std_macro_ms, middle_micro_ms, half_micro_ms, mean_micro_ms, std_micro_ms)
 
     combined_metrics = {'byol': byol_metrics, 'byol ms': byol_metrics_ms}
-    print(f'combined_metrics: {combined_metrics}')
+    # print(f'combined_metrics: {combined_metrics}')
     save_name = f'{batch_size}-{epoch_number}-{latent_dim}-{projection_dim}-comparing-byol-and-ms.pickle'
     save_path = os.path.join(working_directory, save_name)
     print(save_path)
     with open(save_path, 'wb') as f:
         pickle.dump(combined_metrics, f) 
 
+def save_train_test_embeddings(X_train, X_test, y_train, y_test, path_to_embeddings, save_name):
+    start_time = datetime.datetime.now()
+    start_time_str = start_time.strftime("%Y%m%d-%H%M%S")
+    print(f'Starting to save train test embeddings: {start_time_str}')
+    save_name = f'{save_name}-{start_time_str}.pickle'
+    save_path = os.path.join(path_to_embeddings, save_name)
+    with open(save_path, 'wb') as f:
+        data = [X_train, X_test, y_train, y_test]
+        pickle.dump(data, f)
+
+
 if __name__ == '__main__':
     # parse arguments - latent dim is for autoencoder dimension, projection dim is for BYOL mlp projection 
-    testing_flag, batch_size, epoch_number, latent_dim, projection_dim, plotting_flag, ms_flag, comparing_flag = parse_arguments(sys.argv)
-    
+    # testing_flag, batch_size, epoch_number, latent_dim, projection_dim, plotting_flag, ms_flag, comparing_flag = parse_arguments(sys.argv)
+    testing_flag, batch_size, epoch_number, latent_dim, projection_dim, plotting_flag, ms_flag, comparing_flag = True, 512, 1, 128, 64, False, False, False
     start_time = datetime.datetime.now()
     start_time_str = start_time.strftime("%Y%m%d-%H%M%S")
     print(start_time_str)
@@ -513,12 +645,17 @@ if __name__ == '__main__':
     else:
         if not plotting_flag:
             print('proceeding as normal')
-            byol_encoder, test_chapman_dataset, train_chapman_dataset, working_directory = autoencoder_function(testing_flag, batch_size, epoch_number, latent_dim, projection_dim)
-            save_name = f'{testing_flag}-{ms_flag}-{batch_size}-{epoch_number}-{latent_dim}-{projection_dim}-chapman-metrics.pickle'
+            byol_encoder, test_chapman_dataset, train_chapman_dataset, working_directory, path_to_embeddings = autoencoder_function(testing_flag, batch_size, epoch_number, latent_dim, projection_dim)
+            save_name = f'{testing_flag}-{ms_flag}-{batch_size}-{epoch_number}-{latent_dim}-{projection_dim}-chapman'
             print(save_name)
-            metrics = downstream_function(byol_encoder, test_chapman_dataset, train_chapman_dataset)
+            metrics, middle_macro, half_micro, mean_macro, std_macro, middle_micro, half_micro, mean_micro, std_micro, X_train, X_test, y_train, y_test = downstream_function(byol_encoder, test_chapman_dataset, train_chapman_dataset)
+            save_train_test_embeddings(X_train, X_test, y_train, y_test, path_to_embeddings, save_name)
             print(metrics)
-            save_path = os.path.join(working_directory, save_name)
+            print('******')
+            print(f"    AUC OVR: {metrics['auc_ovr']}")
+            print(f"    AUC OVO: {metrics['auc_ovo']}")
+            print_auc_intervals(middle_macro, half_micro, mean_macro, std_macro, middle_micro, half_micro, mean_micro, std_micro)
+            save_path = os.path.join(working_directory, f'{save_name}-metrics.pickle')
             with open(save_path, 'wb') as f:
                 pickle.dump(metrics, f)
 

@@ -1,5 +1,5 @@
-# import pickle5 as pickle 
-import pickle
+import pickle5 as pickle 
+# import pickle
 import scipy.constants
 import datetime
 import tensorflow as tf
@@ -48,11 +48,12 @@ def parse_arguments(args):
     plot_flag = args[8] == 'True'
     predict_flag = args[9] == 'True'
     aggregate = args[10]
+    temperature = ast.literal_eval(args[11])
 
-    return testing_flag, window_size, batch_size, non_testing_simclr_epochs, transformation_indices, initial_learning_rate, non_testing_linear_eval_epochs, plot_flag, predict_flag, aggregate
+    return testing_flag, window_size, batch_size, non_testing_simclr_epochs, transformation_indices, initial_learning_rate, non_testing_linear_eval_epochs, plot_flag, predict_flag, aggregate, temperature
 
 
-def main(testing_flag, window_size, batch_size, non_testing_simclr_epochs, transformation_indices, initial_learning_rate, non_testing_linear_eval_epochs, plot_flag, predict_flag, aggregate):
+def main(testing_flag, window_size, batch_size, non_testing_simclr_epochs, transformation_indices, initial_learning_rate, non_testing_linear_eval_epochs, plot_flag, predict_flag, aggregate, temperature):
 
     if testing_flag:
         working_directory = 'hchs_mesa_testing/'
@@ -64,7 +65,7 @@ def main(testing_flag, window_size, batch_size, non_testing_simclr_epochs, trans
             os.makedirs(working_directory)
     transformation_indicies_string = ''.join([str(i) for i in transformation_indices])
     lr_string = str(initial_learning_rate).replace('.','')
-    name_of_run = f'testing-{testing_flag}-ws-{window_size}-bs-{batch_size}-transformations-{transformation_indicies_string}-lr-{lr_string}-agg-{aggregate}'
+    name_of_run = f'testing-{testing_flag}-ws-{window_size}-bs-{batch_size}-transformations-{transformation_indicies_string}-lr-{lr_string}-agg-{aggregate}-temp-{temperature}'
     print(name_of_run)
     
     dataset_save_path = os.path.join(os.getcwd(), "PickledData", "hchs")
@@ -132,9 +133,6 @@ def main(testing_flag, window_size, batch_size, non_testing_simclr_epochs, trans
     else:
         epochs = non_testing_simclr_epochs
 
-    temperature = 0.1
-    
-
     transform_funcs_vectorised = [
         hchs_transformations.noise_transform_vectorized, 
         hchs_transformations.scaling_transform_vectorized, 
@@ -158,9 +156,9 @@ def main(testing_flag, window_size, batch_size, non_testing_simclr_epochs, trans
     simclr_model = simclr_models.attach_simclr_head(base_model)
     simclr_model.summary()
 
-    print("end of simclr bit")
-
     trained_simclr_model, epoch_losses = simclr_utitlities.simclr_train_model(simclr_model, np_train[0], optimizer, batch_size, transformation_function, temperature=temperature, epochs=epochs, is_trasnform_function_vectorized=True, verbose=1)
+
+    print("end of simclr bit")
 
     simclr_model_save_path = f"{working_directory}{start_time_str}_simclr.hdf5"
     trained_simclr_model.save(simclr_model_save_path)
@@ -359,9 +357,9 @@ def main(testing_flag, window_size, batch_size, non_testing_simclr_epochs, trans
             simclr_predictions.mesa_plot_predictions_micro_macro(mesa_disease_metric_optimised_predictions, disease_classifier_plots_save_path, show=False)
 
 if __name__ == '__main__':
-    testing_flag, window_size, batch_size, non_testing_simclr_epochs, transformation_indices, initial_learning_rate, non_testing_linear_eval_epochs, plot_flag, predict_flag, aggregate = parse_arguments(sys.argv)
+    testing_flag, window_size, batch_size, non_testing_simclr_epochs, transformation_indices, initial_learning_rate, non_testing_linear_eval_epochs, plot_flag, predict_flag, aggregate, temperature = parse_arguments(sys.argv)
     print('args read successfully, starting main')
-    main(testing_flag, window_size, batch_size, non_testing_simclr_epochs, transformation_indices, initial_learning_rate, non_testing_linear_eval_epochs, plot_flag, predict_flag, aggregate)
+    main(testing_flag, window_size, batch_size, non_testing_simclr_epochs, transformation_indices, initial_learning_rate, non_testing_linear_eval_epochs, plot_flag, predict_flag, aggregate, temperature)
 
 
 

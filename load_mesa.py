@@ -71,8 +71,8 @@ def process_data(data):
 
     return new_data, new_labels
 
-def get_fixed_test_train_split_and_pickle(user_datasets, path_to_pickled_mesa_data, test_percentage=20):
-    mesaids = user_datasets.keys()
+def get_fixed_test_train_split_and_pickle(insomnia_user_datasets, sleep_apnea_user_datasets, path_to_pickled_mesa_data, test_percentage=20):
+    mesaids = insomnia_user_datasets.keys() & sleep_apnea_user_datasets.keys() 
     number_of_mesaids = len(mesaids)
     test_fraction = test_percentage / 100
     number_of_test_mesaids = int(test_fraction * number_of_mesaids)
@@ -85,8 +85,8 @@ def get_fixed_test_train_split_and_pickle(user_datasets, path_to_pickled_mesa_da
     with open(save_path, 'wb') as f:
         pickle.dump(test_train_split_dict, f)
     
-def get_fixed_test_train_split_reduced_and_pickle(user_datasets, path_to_pickled_mesa_data):
-    mesaids = user_datasets.keys()
+def get_fixed_test_train_split_reduced_and_pickle(insomnia_user_datasets, sleep_apnea_user_datasets, path_to_pickled_mesa_data):
+    mesaids = insomnia_user_datasets.keys() & sleep_apnea_user_datasets.keys()
     reduced_mesaids = random.sample(mesaids, 100)
     number_of_test_mesaids = 20
 
@@ -129,13 +129,18 @@ def get_mesaid_to_disease_array(path_to_questionnarire_data, path_to_pickled_mes
     columns_of_interest = ['mesaid', 'slpapnea5', 'insmnia5']
     data = questionnaire_data[[c for c in questionnaire_data.columns if c in columns_of_interest]]
     data = data.rename(columns={'slpapnea5':'sleep_apnea', 'insmnia5':'insomnia'})
+    data = data[data['sleep_apnea'].notna()]
     save_name = 'mesaid_to_disease_array.pickle'
     save_path = os.path.join(path_to_pickled_mesa_data, save_name)
     with open(save_path, 'wb') as f:
         pickle.dump(data, f)
 
-def extract_columns_of_interest(data):
-    columns_of_interest = ["activity", "whitelight", "bluelight", "greenlight", "redlight", "interval"]
+def extract_columns_of_interest(data, include_wake=False):
+    if include_wake:
+        columns_of_interest = ["activity", "whitelight", "bluelight", "greenlight", "redlight", "wake", "interval"]
+    else:    
+        columns_of_interest = ["activity", "whitelight", "bluelight", "greenlight", "redlight", "interval"]
+    
     data_label_dataset = data[[c for c in data.columns if c in columns_of_interest]]
     data_label_dataset = data_label_dataset[data_label_dataset["interval"] != "EXCLUD"]
     data_label_dataset = data_label_dataset.dropna()
@@ -143,8 +148,6 @@ def extract_columns_of_interest(data):
     if data_label_dataset.empty:
         return 
     
-    label_column = ["interval"]
-
     return data_label_dataset[[c for c in columns_of_interest if c != 'interval']]
 
 def check_if_data_is_all_zero(data):
@@ -160,7 +163,7 @@ def get_mesaid_list(path_to_actigraphy_data):
         mesaids.append(mesaid)
     return mesaids
 
-def load_disease_user_dataset(path_to_actigraphy_data, path_to_mesaid_to_disease_array, path_to_pickled_mesa_data, disease):
+def load_disease_user_dataset(path_to_actigraphy_data, path_to_mesaid_to_disease_array, path_to_pickled_mesa_data, disease, include_wake=False):
     print(disease)
     with open(path_to_mesaid_to_disease_array, 'rb') as f:
         mesaid_to_disease_array = pickle.load(f)
@@ -179,7 +182,7 @@ def load_disease_user_dataset(path_to_actigraphy_data, path_to_mesaid_to_disease
             continue 
         
         data = pd.read_csv(file)
-        processed_data = extract_columns_of_interest(data)
+        processed_data = extract_columns_of_interest(data, include_wake=True)
         
         if processed_data is None:
             number_skipped += 1
@@ -199,43 +202,60 @@ def load_disease_user_dataset(path_to_actigraphy_data, path_to_mesaid_to_disease
             continue
         
         disease_label = mesaid_to_disease_array[mesaid_to_disease_array['mesaid'] == mesaid][disease].values[0]
+        if disease_label not in [0.0, 1.0, 2.0, 3.0]:
+            print(f'{mesaid} has invalid label: {disease_label}')
+            number_skipped += 1
+            continue
+
         mesaid_to_data_dict[mesaid] = [processed_data, disease_label]
 
     print(f'number of skipped files: {number_skipped}')
-    save_name = f'{disease}_user_datasets.pickle'
+    if include_wake:
+        save_name = f'{disease}_with_wake_user_datasets.pickle'
+    else:
+        save_name = f'{disease}_user_datasets.pickle'
     print(save_name)
     save_path = os.path.join(path_to_pickled_mesa_data, save_name)
     with open(save_path, 'wb') as f:
         pickle.dump(mesaid_to_data_dict, f)
 
+
 if __name__ == "__main__":
+    get_mesaid_to_disease_array(path_to_questionnarire_data, path_to_pickled_mesa_data)
+
     with open(path_to_mesaid_to_disease_array, 'rb') as f:
         mesaid_to_disease_array = pickle.load(f)
         
     # diseases = ['sleep_apnea', 'insomnia']
     # for disease in diseases:
-    #     load_disease_user_dataset(path_to_actigraphy_data, path_to_mesaid_to_disease_array, path_to_pickled_mesa_data, disease)
+    #     load_disease_user_dataset(path_to_actigraphy_data, path_to_mesaid_to_disease_array, path_to_pickled_mesa_data, disease, include_wake=True)
     
-    with open(os.path.join(path_to_pickled_mesa_data, 'sleep_apnea_user_datasets.pickle'), 'rb') as f:
+    with open(os.path.join(path_to_pickled_mesa_data, 'sleep_apnea_with_wake_user_datasets.pickle'), 'rb') as f:
         sleep_apnea_user_datasets = pickle.load(f)
 
-    with open(os.path.join(path_to_pickled_mesa_data, 'insomnia_user_datasets.pickle'), 'rb') as f:
+    with open(os.path.join(path_to_pickled_mesa_data, 'insomnia_with_wake_user_datasets.pickle'), 'rb') as f:
         insomnia_user_datasets = pickle.load(f)
 
-    # get_fixed_test_train_split_reduced_and_pickle(sleep_apnea_user_datasets, path_to_pickled_mesa_data)
+    get_fixed_test_train_split_and_pickle(insomnia_user_datasets, sleep_apnea_user_datasets, path_to_pickled_mesa_data, test_percentage=20)
+    get_fixed_test_train_split_reduced_and_pickle(insomnia_user_datasets, sleep_apnea_user_datasets, path_to_pickled_mesa_data)
 
-    for patient, data_label in sleep_apnea_user_datasets.items():
-        data, label = data_label
-        if not (label == 0 or label == 1):
-            print(f'{patient} : {label}')
+    with open(path_to_test_train_split_dict, 'rb') as f:
+        test_train_split_dict = pickle.load(f)
+    
+    test_users = test_train_split_dict['test']
+    train_users = test_train_split_dict['train']
 
-    # with open(path_to_test_train_split_reduced_dict, 'rb') as f:
-    #     test_train_split_dict = pickle.load(f)
+    for user in test_users:
+        label = insomnia_user_datasets[user][1]
+        if label not in [0.0, 1.0]:
+            print(f'user: {user} has label: {label}')
 
-    # total = len(test_train_split_dict['train']) + len(test_train_split_dict['test'])
-    # print(total)
-    # print(len(sleep_apnea_user_datasets))
-    # print(len(insomnia_user_datasets))
+    for user in train_users:
+        label = insomnia_user_datasets[user][1]
+        if label not in [0.0, 1.0]:
+            print(f'user: {user} has label: {label}')
+
+        
 
     
 

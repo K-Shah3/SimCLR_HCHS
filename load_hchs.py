@@ -250,10 +250,10 @@ def get_fixed_test_train_split_and_pickle(pid_to_data_label_dict, path_to_pickle
     with open(save_path, 'wb') as f:
         pickle.dump(test_train_split_dict, f)
     
-def get_fixed_test_train_split_reduced_and_pickle(pid_to_data_label_dict, path_to_pickled_hchs_data):
+def get_fixed_test_train_split_reduced_and_pickle(pid_to_data_label_dict, path_to_pickled_hchs_data, reduced_number=100):
     pids = pid_to_data_label_dict.keys()
-    reduced_pids = random.sample(pids, 10)
-    number_of_test_pids = 2
+    reduced_pids = random.sample(pids, reduced_number)
+    number_of_test_pids = int(0.2 * reduced_number)
 
     test_pids = random.sample(reduced_pids, number_of_test_pids)
     train_pids = [pid for pid in reduced_pids if pid not in test_pids]
@@ -293,7 +293,7 @@ def check_if_data_is_all_zero(data):
     all_zero = (columns_zero == True).all()
     return all_zero
 
-def load_disease_user_dataset(path_to_data, path_to_pid_to_disease_array, path_to_pickled_hchs_data, disease):
+def load_disease_user_dataset(path_to_data, path_to_pid_to_disease_array, path_to_pickled_hchs_data, disease, with_wake=False):
     with open(path_to_pid_to_disease_array, 'rb') as f:
         pid_to_disease_array = pickle.load(f)
 
@@ -304,7 +304,7 @@ def load_disease_user_dataset(path_to_data, path_to_pid_to_disease_array, path_t
         filename = os.path.basename(file)
         pid = get_pid_from_filename(filename)
         data = pd.read_csv(file)
-        processed_data = extract_columns_of_interest(data)
+        processed_data = extract_columns_of_interest(data, with_wake)
         if processed_data is None:
             number_skipped += 1
             print(f'{pid} was None')
@@ -322,20 +322,28 @@ def load_disease_user_dataset(path_to_data, path_to_pid_to_disease_array, path_t
             continue
 
         disease_label = pid_to_disease_array[pid_to_disease_array['pid'] == int(pid)][disease].values[0]
-
+        if disease_label not in [0.0, 1.0, 2.0, 3.0]:
+            print(f'{pid} disease label is not valid: {disease_label}')
+            number_skipped += 1
+            continue
         pid_to_data_dict[pid] = [processed_data, disease_label]
 
     print(f'number of skipped files: {number_skipped}')
-    save_name = f'{disease}_user_datasets.pickle'
+    if with_wake:
+        save_name = f'{disease}_with_wake_user_datasets.pickle'
+    else:
+        save_name = f'{disease}_user_datasets.pickle'
     print(save_name)
     save_path = os.path.join(path_to_pickled_hchs_data, save_name)
     with open(save_path, 'wb') as f:
         pickle.dump(pid_to_data_dict, f)
 
     
-    
-def extract_columns_of_interest(data):
-    columns_of_interest = ["activity", "whitelight", "bluelight", "greenlight", "redlight", "interval"]
+def extract_columns_of_interest(data, with_wake=False):
+    if with_wake:
+        columns_of_interest = ["activity", "whitelight", "bluelight", "greenlight", "redlight", "wake", "interval"]
+    else:
+        columns_of_interest = ["activity", "whitelight", "bluelight", "greenlight", "redlight", "interval"]
     data_label_dataset = data[[c for c in data.columns if c in columns_of_interest]]
     data_label_dataset = data_label_dataset[data_label_dataset["interval"] != "EXCLUD"]
     data_label_dataset = data_label_dataset.dropna()
@@ -411,16 +419,38 @@ if __name__ == "__main__":
     #     print(user_dataset_100[key][0])
 
     # testing(path_to_actigraphy_data, path_to_pid_to_disease_array, 'diabetes')
-    # for disease in ['hypertension', 'diabetes', 'sleep_apnea', 'metabolic_syndrome', 'insomnia']:
-    #     load_disease_user_dataset(path_to_actigraphy_data, path_to_pid_to_disease_array, path_to_pickled_hchs_data, disease)
+    for disease in ['hypertension', 'diabetes', 'sleep_apnea', 'metabolic_syndrome', 'insomnia']:
+        print(disease)
+        load_disease_user_dataset(path_to_actigraphy_data, path_to_pid_to_disease_array, path_to_pickled_hchs_data, disease, with_wake=True)
 
     with open(os.path.join(path_to_pickled_hchs_data, 'metabolic_syndrome_user_datasets.pickle'), 'rb') as f:
         metabolic_syndrome_user_datasets = pickle.load(f)
 
+    get_fixed_test_train_split_and_pickle(metabolic_syndrome_user_datasets, path_to_pickled_hchs_data, test_percentage=20)
+    get_fixed_test_train_split_reduced_and_pickle(metabolic_syndrome_user_datasets, path_to_pickled_hchs_data, reduced_number=100)
+
+    print(f'length of user dataset: {len(metabolic_syndrome_user_datasets)}')
+    with open(path_to_test_train_split_dict, 'rb') as f:
+        test_train_split_dict = pickle.load(f)
+    
+    print(f"length of test_train split dict: train - {len(test_train_split_dict['train'])} test - {len(test_train_split_dict['test'])}")
+
+    with open(path_to_test_train_split_reduced_dict, 'rb') as f:
+        reduced_test_train_split_dict = pickle.load(f)
+    
+    print(f"length of reduced test_train split dict: train - {len(reduced_test_train_split_dict['train'])} test - {len(reduced_test_train_split_dict['test'])}")
     print(len(metabolic_syndrome_user_datasets))
-    labels = set()
-    for user, data_label in metabolic_syndrome_user_datasets.items():
-        data, label = data_label
-        if not (label == 0.0 or label == 1.0):
-            print(f'{user} : {label}')
-            continue
+    # labels = set()
+    # for user, data_label in metabolic_syndrome_user_datasets.items():
+    #     data, label = data_label
+    #     if not (label == 0.0 or label == 1.0):
+    #         print(f'{user} : {label}')
+    disease = 'diabetes'
+    with open(os.path.join(path_to_pickled_hchs_data, f'{disease}_with_wake_user_datasets.pickle'), 'rb') as f:
+        disease_user_datasets = pickle.load(f)
+    
+    keys = list(disease_user_datasets.keys())
+    sample_key = keys[0]
+    data, label = disease_user_datasets[sample_key]
+    print(f'data size: {data.shape}')
+    #         continue

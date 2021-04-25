@@ -27,3 +27,5 @@ BYOL/byol_chapman/plots/projection_dim_auc_False_True_128_256_32-64-128-256-512_
 /BYOL/byol_mesa/20210406-004945-False-128-30-512-256-mesa-combined-metrics.pickle
 /BYOL/byol_hchs/read_results.py
 /BYOL/byol_chapman/read_results.py
+/training_percentage
+/embeddings

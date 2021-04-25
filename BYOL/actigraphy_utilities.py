@@ -13,6 +13,8 @@ import torch.nn.functional as func
 from torchsummary import summary
 from torch.utils.data import DataLoader, Dataset
 import pytorch_lightning as pl
+from pl_bolts.optimizers.lars import LARS
+from pl_bolts.optimizers.lr_scheduler import linear_warmup_decay
 import tensorflow as tf
 import math 
 
@@ -274,13 +276,36 @@ class SpecificLengthDataset(Dataset):
 class autoencoder(nn.Module):
     def __init__(self, latent_dim, x_dim, y_dim=5):
         super(autoencoder, self).__init__()
+        # self.encoder = nn.Sequential(
+        #     nn.Flatten(),
+        #     nn.Linear(x_dim*y_dim, latent_dim),
+        #     nn.Sigmoid())
+        # self.decoder = nn.Sequential(
+        #     nn.Linear(latent_dim, x_dim*y_dim),
+        #     nn.Sigmoid())
+
         self.encoder = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(x_dim*y_dim, latent_dim),
-            nn.Sigmoid())
+            nn.Linear(x_dim*y_dim, 2046),
+            nn.ReLU(),
+            nn.Linear(2046, 1024),
+            nn.ReLU(),
+            nn.Linear(1024, 512),
+            nn.ReLU(),
+            nn.Linear(512, latent_dim),
+            nn.Sigmoid()
+        )
+
         self.decoder = nn.Sequential(
-            nn.Linear(latent_dim, x_dim*y_dim),
-            nn.Sigmoid())
+            nn.Linear(latent_dim, 512),
+            nn.ReLU(),
+            nn.Linear(512, 1024),
+            nn.ReLU(),
+            nn.Linear(1024, 2048),
+            nn.ReLU(),
+            nn.Linear(2048, x_dim*y_dim),
+            nn.Sigmoid()
+        )
 
     def forward(self, x):
         x = self.encoder(x)
@@ -394,7 +419,6 @@ def get_trained_autoencoder_ms(user_datasets, test_train_split_dict, batch_size=
 
     return autoencoder, encoder, decoder
 
-
 def get_combined_trained_autoencoder(mesa_user_datasets, mesa_test_train_split_dict, hchs_user_datasets, hchs_test_train_split_dict, batch_size=128, latent_dim=256):
     '''With the input data train an autoencoder on the train data only'''
     mesa_train_user_list = mesa_test_train_split_dict['train']
@@ -464,7 +488,7 @@ class ScaleTransform(nn.Module):
         self.sigma = sigma
 
     def forward(self, x: Tensor) -> Tensor:
-        scalar = torch.normal(0, self.sigma, size=(1,))
+        scalar = torch.normal(1, self.sigma, size=(1,))
         return scalar * x
 
 class Negate(nn.Module):
@@ -550,11 +574,13 @@ class BYOL(pl.LightningModule):
         hidden_size: int = 4096,
         augment_fn: Callable = None,
         beta: float = 0.999,
-        **hparams,
+        batch_size: int = 512,
+        **hparams
     ):
         super().__init__()
         self.augment = default_augmentation(image_size) if augment_fn is None else augment_fn
         self.beta = beta
+        self.batch_size = batch_size
         self.encoder = EncoderWrapper(
             model, projection_size, hidden_size, layer=hidden_layer
         )
@@ -580,10 +606,31 @@ class BYOL(pl.LightningModule):
     # --- Methods required for PyTorch Lightning only! ---
 
     def configure_optimizers(self):
-        optimizer = getattr(optim, self.hparams.get("optimizer", "Adam"))
-        lr = self.hparams.get("lr", 1e-4)
-        weight_decay = self.hparams.get("weight_decay", 1e-6)
-        return optimizer(self.parameters(), lr=lr, weight_decay=weight_decay)
+        # optimizer = getattr(optim, self.hparams.get("optimizer", "Adam"))
+        # lr = self.hparams.get("lr", 1e-4)
+        # weight_decay = self.hparams.get("weight_decay", 1e-6)
+        # return optimizer(self.parameters(), lr=lr, weight_decay=weight_decay)
+        
+        optimizer = LARS(self.parameters(), 
+                        lr=(0.2*(self.batch_size/256)),
+                        momentum=0.9,
+                        weight_decay=self.hparams.get("weight_decay", 1e-6),
+                        trust_coefficient=0.001)
+
+        train_iters_per_epoch = 8000 // self.batch_size
+        warmup_steps = train_iters_per_epoch * 10
+        total_steps = train_iters_per_epoch * 100
+
+        scheduler = {
+            "scheduler": torch.optim.lr_scheduler.LambdaLR(
+                optimizer,
+                linear_warmup_decay(warmup_steps, total_steps, cosine=True),
+            ),
+            "interval": "step",
+            "frequency": 1,
+        }
+
+        return [optimizer], [scheduler]
 
     def training_step(self, batch, *_) -> Dict[str, Union[Tensor, Dict]]:
         x = batch[0]
@@ -613,7 +660,7 @@ class BYOL(pl.LightningModule):
     @torch.no_grad()
     def validation_epoch_end(self, outputs: List[Dict]) -> Dict:
         val_loss = sum(x["loss"] for x in outputs) / len(outputs)
-        self.log("val_loss", val_loss.item())    
+        # self.log("val_loss", val_loss.item())    
 
 
 class BYOL_MS(pl.LightningModule):
@@ -627,6 +674,7 @@ class BYOL_MS(pl.LightningModule):
         augment_fn: Callable = None,
         beta: float = 0.999,
         segment_number = 2,
+        batch_size = 512, 
         **hparams,
     ):
         super().__init__()
@@ -657,10 +705,31 @@ class BYOL_MS(pl.LightningModule):
     # --- Methods required for PyTorch Lightning only! ---
 
     def configure_optimizers(self):
-        optimizer = getattr(optim, self.hparams.get("optimizer", "Adam"))
-        lr = self.hparams.get("lr", 1e-4)
-        weight_decay = self.hparams.get("weight_decay", 1e-6)
-        return optimizer(self.parameters(), lr=lr, weight_decay=weight_decay)
+        # optimizer = getattr(optim, self.hparams.get("optimizer", "Adam"))
+        # lr = self.hparams.get("lr", 1e-4)
+        # weight_decay = self.hparams.get("weight_decay", 1e-6)
+        # return optimizer(self.parameters(), lr=lr, weight_decay=weight_decay)
+        
+        optimizer = LARS(self.parameters(), 
+                        lr=(0.2*(self.batch_size/256)),
+                        momentum=0.9,
+                        weight_decay=self.hparams.get("weight_decay", 1e-6),
+                        trust_coefficient=0.001)
+
+        train_iters_per_epoch = 8000 // self.batch_size
+        warmup_steps = train_iters_per_epoch * 10
+        total_steps = train_iters_per_epoch * 100
+
+        scheduler = {
+            "scheduler": torch.optim.lr_scheduler.LambdaLR(
+                optimizer,
+                linear_warmup_decay(warmup_steps, total_steps, cosine=True),
+            ),
+            "interval": "step",
+            "frequency": 1,
+        }
+
+        return [optimizer], [scheduler]
 
     def training_step(self, batch, *_) -> Dict[str, Union[Tensor, Dict]]:
         x = batch[0]
@@ -700,7 +769,7 @@ class BYOL_MS(pl.LightningModule):
     @torch.no_grad()
     def validation_epoch_end(self, outputs: List[Dict]) -> Dict:
         val_loss = sum(x["loss"] for x in outputs) / len(outputs)
-        self.log("val_loss", val_loss.item())
+        # self.log("val_loss", val_loss.item())
 
 
         

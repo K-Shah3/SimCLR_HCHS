@@ -36,8 +36,10 @@ def parse_arguments(args):
     batch_size = ast.literal_eval(args[4])
     epoch_number = int(args[5])
     disease = args[6]
-    
-    return testing_flag, transformation_indices, lr, batch_size, epoch_number, disease
+    temperature = ast.literal_eval(args[7])
+    with_wake = args[8] == 'True'
+
+    return testing_flag, transformation_indices, lr, batch_size, epoch_number, disease, temperature, with_wake
 
 def crop_or_pad_data(data, average_length):
     data_length = data.shape[0]
@@ -71,7 +73,7 @@ def get_cropped_padded_disease_dataset(disease_dataset):
     
     return cropped_padded_disease_dataset
  
-def get_datasets_from_paths(testing_flag):
+def get_datasets_from_paths(testing_flag, with_wake):
     if testing_flag:
         working_directory = 'mesa_testing/'
     else:
@@ -92,7 +94,10 @@ def get_datasets_from_paths(testing_flag):
 
     disease_user_datasets = {}
     for disease in diseases:
-        disease_user_dataset_path = os.path.join(dataset_save_path, f'{disease}_user_datasets.pickle')
+        if with_wake:
+            disease_user_dataset_path = os.path.join(dataset_save_path, f'{disease}_with_wake_user_datasets.pickle')
+        else:
+            disease_user_dataset_path = os.path.join(dataset_save_path, f'{disease}_user_datasets.pickle')
         with open(disease_user_dataset_path, 'rb') as f:
             user_dataset = pickle.load(f)
         user_dataset = get_cropped_padded_disease_dataset(user_dataset)
@@ -201,22 +206,21 @@ def create_train_test_datasets(disease_user_datasets, disease, test_train_split_
             test_labels.append(label)
             test_labels_dict[patient_id] = label
 
-    # convert list of data to single 3D array shape: (len(train_data/test_data), 2500, 4)
+    
     np_train_data = np.rollaxis(np.dstack(train_data), -1)
     np_test_data = np.rollaxis(np.dstack(test_data), -1)
 
     return np_train_data, train_labels, train_labels_dict, np_test_data, test_labels, test_labels_dict
 
-def train_simclr(testing_flag, np_train, transformation_indices=[0,1], lr=0.01, batch_size=128, epoch_number=100):
+def train_simclr(testing_flag, np_train, transformation_indices=[0,1], lr=0.01, batch_size=128, epoch_number=100, temperature=0.1):
     decay_steps = 1000
     if testing_flag:
         epochs = 1
     else:
         epochs = epoch_number
 
-    temperature = 0.1
-
     input_shape = (np_train.shape[1], np_train.shape[2])
+    print(f'input_shape: {input_shape}')
 
     transform_funcs_vectorised = [
         hchs_transformations.noise_transform_vectorized, 
@@ -271,12 +275,12 @@ def downstream_evaluation(trained_simclr_model, np_train, np_test, train_labels,
 
     return metrics            
 
-def main(testing_flag, transformation_indices, lr, batch_size, epoch_number):
-    disease_user_datasets, test_train_split_dict, working_directory = get_datasets_from_paths(testing_flag)
+def main(testing_flag, transformation_indices, lr, batch_size, epoch_number, temperature, with_wake):
+    disease_user_datasets, test_train_split_dict, working_directory = get_datasets_from_paths(testing_flag, with_wake)
     disease_metrics = {}
     for disease in diseases:
         np_train_data, train_labels, train_labels_dict, np_test_data, test_labels, test_labels_dict = create_train_test_datasets(disease_user_datasets, disease, test_train_split_dict, working_directory)
-        trained_simclr_model, epoch_losses = train_simclr(testing_flag, np_train_data, transformation_indices=transformation_indices, lr=lr, batch_size=batch_size, epoch_number=epoch_number)
+        trained_simclr_model, epoch_losses = train_simclr(testing_flag, np_train_data, transformation_indices=transformation_indices, lr=lr, batch_size=batch_size, epoch_number=epoch_number, temperature=temperature)
         metrics = downstream_evaluation(trained_simclr_model, np_train_data, np_test_data, train_labels, test_labels)
         disease_metrics[disease] = metrics
         
@@ -291,27 +295,26 @@ def main(testing_flag, transformation_indices, lr, batch_size, epoch_number):
 
     return disease_metrics
 
-def disease_main(testing_flag, transformation_indices, lr, batch_size, epoch_number, disease):
-    print(f'starting')
-    disease_user_datasets, test_train_split_dict, working_directory = get_datasets_from_paths(testing_flag)
+def disease_main(testing_flag, transformation_indices, lr, batch_size, epoch_number, disease, temperature, with_wake):
+    print(f'starting with_wake: {with_wake}')
+    disease_user_datasets, test_train_split_dict, working_directory = get_datasets_from_paths(testing_flag, with_wake)
     disease_metrics = {}
     print('getting datasets')
     np_train_data, train_labels, train_labels_dict, np_test_data, test_labels, test_labels_dict = create_train_test_datasets(disease_user_datasets, disease, test_train_split_dict, working_directory)
     print('training simclr')
-    trained_simclr_model, epoch_losses = train_simclr(testing_flag, np_train_data, transformation_indices=transformation_indices, lr=lr, batch_size=batch_size, epoch_number=epoch_number)
+    trained_simclr_model, epoch_losses = train_simclr(testing_flag, np_train_data, transformation_indices=transformation_indices, lr=lr, batch_size=batch_size, epoch_number=epoch_number, temperature=temperature)
     print('downstream evaluation')
     metrics = downstream_evaluation(trained_simclr_model, np_train_data, np_test_data, train_labels, test_labels)
     disease_metrics[disease] = metrics
     print('***********')
-    print(f"{disease} f1 micro: {metrics['f1_micro']}")
-    print(f"{disease} f1 macro: {metrics['f1_macro']}")
+    print(f"    {disease} f1 micro: {metrics['f1_micro']}")
+    print(f"    {disease} f1 macro: {metrics['f1_macro']}")
     
-
-def try_different_transformations(testing_flag, transformation_indices_list, lr, batch_size, epoch_number):
+def try_different_transformations(testing_flag, transformation_indices_list, lr, batch_size, epoch_number, temperature, with_wake):
     disease_metrics_list = []
 
     for transformation_indices in transformation_indices_list:
-        disease_metrics = main(testing_flag, transformation_indices, lr, batch_size, epoch_number)
+        disease_metrics = main(testing_flag, transformation_indices, lr, batch_size, epoch_number, temperature, with_wake)
         disease_metrics_list.append(disease_metrics)
         
         print(f'transformation indices: {tranformation_indices}')
@@ -328,11 +331,32 @@ def try_different_transformations(testing_flag, transformation_indices_list, lr,
             print(f'        f1 macro: {f1_macro}')
             print(f'        f1 micro: {f1_micro}')
 
-def try_different_batch_sizes(testing_flag, transformation_indices, lr, batch_sizes, epoch_number):
+def try_different_temperatures(testing_flag, transformation_indices, lr, batch_size, epoch_number, temperatures, with_wake):
+    disease_metrics_list = []
+
+    for temperature in temperatures:
+        disease_metrics = main(testing_flag, transformation_indices, lr, batch_size, epoch_number, temperature, with_wake)
+        disease_metrics_list.append(disease_metrics)
+        
+        print(f'tempature: {temperature}')
+        print(disease_metrics)
+        print('********')
+
+    print('*********')
+    for temperature, disease_metrics in zip(temperature, disease_metrics_list):
+        print(f'tempature: {temperature}')
+        for disease, metrics in disease_metrics.items():
+            f1_micro = metrics['f1_micro']
+            f1_macro = metrics['f1_macro']
+            print(f'    {disease}')
+            print(f'        f1 macro: {f1_macro}')
+            print(f'        f1 micro: {f1_micro}')
+
+def try_different_batch_sizes(testing_flag, transformation_indices, lr, batch_sizes, epoch_number, temperatures, with_wake):
     disease_metrics_list = []
 
     for batch_size in batch_sizes:
-        disease_metrics = main(testing_flag, transformation_indices, lr, batch_size, epoch_number)
+        disease_metrics = main(testing_flag, transformation_indices, lr, batch_size, epoch_number, temperatures, with_wake)
         disease_metrics_list.append(disease_metrics)
         
         print(f'batch size: {batch_size}')
@@ -349,11 +373,11 @@ def try_different_batch_sizes(testing_flag, transformation_indices, lr, batch_si
             print(f'        f1 macro: {f1_macro}')
             print(f'        f1 micro: {f1_micro}')
 
-def try_different_learning_rates(testing_flag, transformation_indices, learning_rates, batch_size, epoch_number):
+def try_different_learning_rates(testing_flag, transformation_indices, learning_rates, batch_size, epoch_number, temperatures, with_wake):
     disease_metrics_list = []
 
     for lr in learning_rates:
-        disease_metrics = main(testing_flag, transformation_indices, lr, batch_size, epoch_number)
+        disease_metrics = main(testing_flag, transformation_indices, lr, batch_size, epoch_number, temperatures, with_wake)
         disease_metrics_list.append(disease_metrics)
         
         print(f'learning rate: {lr}')
@@ -371,10 +395,10 @@ def try_different_learning_rates(testing_flag, transformation_indices, learning_
             print(f'        f1 micro: {f1_micro}')
             
 if __name__ == "__main__":
-    testing_flag, transformation_indices, lr, batch_size, epoch_number, disease = parse_arguments(sys.argv)
-    # testing_flag, transformation_indices, lr, batch_size, epoch_number = True, [0,1], 0.1, 128, 1
+    testing_flag, transformation_indices, lr, batch_size, epoch_number, disease, temperature, with_wake = parse_arguments(sys.argv)
+    # testing_flag, transformation_indices, lr, batch_size, epoch_number, disease, temperature, with_wake = True, [0,1], 0.1, 128, 1, 'sleep_apnea', 0.1, True
     # main(testing_flag, transformation_indices, lr, batch_size, epoch_number)
-    # try_different_transformations(testing_flag, transformation_indices_list=transformation_indices, lr, batch_size, epoch_number)
-    # try_different_batch_sizes(testing_flag, transformation_indices, lr, batch_sizes=batch_size, epoch_number)  
-    # try_different_learning_rates(testing_flag, transformation_indices, learning_rates=lr, batch_size, epoch_number)
-    disease_main(testing_flag, transformation_indices, lr, batch_size, epoch_number, disease)
+    # try_different_transformations(testing_flag, transformation_indices_list=transformation_indices, lr, batch_size, epoch_number, temperature, with_wake)
+    # try_different_batch_sizes(testing_flag, transformation_indices, lr, batch_sizes=batch_size, epoch_number, temperature, with_wake)  
+    # try_different_learning_rates(testing_flag, transformation_indices, learning_rates=lr, batch_size, epoch_number, temperature, with_wake)
+    disease_main(testing_flag, transformation_indices, lr, batch_size, epoch_number, disease, temperature, with_wake)
