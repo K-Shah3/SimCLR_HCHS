@@ -209,23 +209,26 @@ def train_simclr(testing_flag, np_train, transformation_indices=[0,1], lr=0.01, 
 
 def get_confidence_interval_auc(y_true, y_pred, n_bootstraps=500):
     '''Using bootstrap with replacement calculate the f1 micro and macro scores n_bootstrap number of times to get the 
-    median at the 95% confidence intervals'''
+    median at the 90% confidence intervals'''
     np.random.seed(1234)
     rng=np.random.RandomState(1234)
     bootstrapped_auc_ovo_scores = []
     bootstrapped_auc_ovr_scores = []
-    for _ in range(n_bootstraps):
+    for i in range(n_bootstraps):
         # bootstrap by sampling with replacement on the prediction indices 
         indices = rng.random_integers(0, len(y_pred) - 1, len(y_pred))
         # we need at least one positive and one negative sample for ROC AUC 
         if len(np.unique(y_true[indices])) < 2:
             # reject the sample
             continue 
-
-        auc_ovo = roc_auc_score(y_true[indices], y_pred[indices], multi_class='ovo')
-        auc_ovr = roc_auc_score(y_true[indices], y_pred[indices], multi_class='ovr')
-        bootstrapped_auc_ovo_scores.append(auc_ovo)
-        bootstrapped_auc_ovr_scores.append(auc_ovr)
+        try:
+            auc_ovo = roc_auc_score(y_true[indices], y_pred[indices], multi_class='ovo')
+            auc_ovr = roc_auc_score(y_true[indices], y_pred[indices], multi_class='ovr')
+            bootstrapped_auc_ovo_scores.append(auc_ovo)
+            bootstrapped_auc_ovr_scores.append(auc_ovr)
+        except (ValueError, TypeError):
+            print(f'auc failed skipping {i}')
+            continue
 
     sorted_auc_ovo_scores = np.array(bootstrapped_auc_ovo_scores)
     sorted_auc_ovo_scores.sort()
@@ -248,6 +251,15 @@ def get_confidence_interval_auc(y_true, y_pred, n_bootstraps=500):
 
     return middle_ovo, half_ovo, mean_ovo, std_ovo, middle_ovr, half_ovr, mean_ovr, std_ovr 
 
+def print_auc_intervals(middle_ovo, half_ovo, mean_ovo, std_ovo, middle_ovr, half_ovr, mean_ovr, std_ovr):
+    '''Print auc intervals in the following format:
+    mean +/- std
+    median +/- half_range'''
+    print(f"    auc ovo middle half: {middle_ovo:.2f} +/- {half_ovo:.2f}")
+    print(f"    auc ovo mean std: {mean_ovo:.2f} +/- {std_ovo:.2f}")
+    print(f"    auc ovr middle half: {middle_ovr:.2f} +/- {half_ovr:.2f}")
+    print(f"    auc ovr mean std: {mean_ovr:.2f} +/- {std_ovr:.2f}")
+
 def different_percentage_training(X_train, X_test, y_train, y_test):
     '''Given train and test representations with labelled data, use different percentages of the train data to 
     train the logistic regression classifier'''
@@ -262,15 +274,20 @@ def different_percentage_training(X_train, X_test, y_train, y_test):
         idx = [0]
         while len(np.unique(y_train[idx])) < 2:
             idx = np.random.choice(train_length, number_of_rows, replace=False)
-        new_X_train = X_train[idx, :]
-        new_y_train = y_train[idx]
-        log_reg_clf.fit(new_X_train, new_y_train)
-        # predict X_test with the trained classifier
-        y_proba = log_reg_clf.predict_proba(X_test)
-        auc_ovo = roc_auc_score(y_test, y_proba, multiclass='ovo')
-        auc_ovr = roc_auc_score(y_test, y_proba, multiclass='ovr')
-        auc_ovo_scores.append(auc_ovo)
-        auc_ovr_scores.append(auc_ovr)
+        try:
+            new_X_train = X_train[idx, :]
+            new_y_train = y_train[idx]
+            log_reg_clf.fit(new_X_train, new_y_train)
+            # predict X_test with the trained classifier
+            y_proba = log_reg_clf.predict_proba(X_test)
+            auc_ovo = roc_auc_score(y_test, y_proba, multi_class='ovo')
+            auc_ovr = roc_auc_score(y_test, y_proba, multi_class='ovr')
+            auc_ovo_scores.append(auc_ovo)
+            auc_ovr_scores.append(auc_ovr)
+        except (TypeError, ValueError):
+            print(f'{percentage} skipped')
+            auc_ovo_scores.append(None)
+            auc_ovr_scores.append(None)
 
     for percentage, auc_ovo, auc_ovr in zip(percentages, auc_ovo_scores, auc_ovr_scores):
         print(f'training percentage: {percentage}')
@@ -290,6 +307,8 @@ def downstream_evaluation(trained_simclr_model, np_train, np_test, train_labels,
     X_test = intermediate_model.predict(np_test)
     y_train = np.array(train_labels)
     y_test = np.array(test_labels)
+
+    embeddings_data = [X_train, X_test, y_train, y_test]
 
     log_reg_clf = LogisticRegression(multi_class='multinomial', solver='lbfgs')
     log_reg_clf.fit(X_train, y_train)
@@ -320,7 +339,7 @@ def downstream_evaluation(trained_simclr_model, np_train, np_test, train_labels,
     # test different percentage training 
     percentages, auc_ovo_scores, auc_ovr_scores = different_percentage_training(X_train, X_test, y_train, y_test)
     
-    return metrics, middle_ovo, half_ovo, mean_ovo, std_ovo, middle_ovr, half_ovr, mean_ovr, std_ovr
+    return metrics, middle_ovo, half_ovo, mean_ovo, std_ovo, middle_ovr, half_ovr, mean_ovr, std_ovr, percentages, auc_ovo_scores, auc_ovr_scores, embeddings_data
 
 def try_different_transformations(testing_flag, transformation_indices, lr, batch_size, epoch_number):
     auc_scores = []
@@ -329,7 +348,7 @@ def try_different_transformations(testing_flag, transformation_indices, lr, batc
         user_datasets, patient_to_rhythm_dict, test_train_split_dict, working_directory = get_datasets_from_paths(testing_flag)
         np_train_data, train_labels, train_labels_dict, np_test_data, test_labels, test_labels_dict = create_train_test_datasets(user_datasets, patient_to_rhythm_dict, test_train_split_dict, working_directory)
         trained_simclr_model, epoch_losses = train_simclr(testing_flag, np_train_data, transformation_indices=indices, lr=lr, batch_size=batch_size, epoch_number=epoch_number)
-        metrics, middle_ovo, half_ovo, mean_ovo, std_ovo, middle_ovr, half_ovr, mean_ovr, std_ovr = downstream_evaluation(trained_simclr_model, np_train_data, np_test_data, train_labels, test_labels)
+        metrics, middle_ovo, half_ovo, mean_ovo, std_ovo, middle_ovr, half_ovr, mean_ovr, std_ovr, percentages, auc_ovo_scores, auc_ovr_scores, embeddings_data = downstream_evaluation(trained_simclr_model, np_train_data, np_test_data, train_labels, test_labels)
         print(f'{indices}: {metrics}')
         auc_scores.append(metrics['auc_ovr'])
         auc_interval_scores.append([middle_ovo, half_ovo, mean_ovo, std_ovo, middle_ovr, half_ovr, mean_ovr, std_ovr])
@@ -347,7 +366,7 @@ def try_different_batch_sizes(testing_flag, transformation_indices, lr, batch_si
         user_datasets, patient_to_rhythm_dict, test_train_split_dict, working_directory = get_datasets_from_paths(testing_flag)
         np_train_data, train_labels, train_labels_dict, np_test_data, test_labels, test_labels_dict = create_train_test_datasets(user_datasets, patient_to_rhythm_dict, test_train_split_dict, working_directory)
         trained_simclr_model, epoch_losses = train_simclr(testing_flag, np_train_data, transformation_indices=transformation_indices, lr=lr, batch_size=bs, epoch_number=epoch_number)
-        metrics, middle_ovo, half_ovo, mean_ovo, std_ovo, middle_ovr, half_ovr, mean_ovr, std_ovr = downstream_evaluation(trained_simclr_model, np_train_data, np_test_data, train_labels, test_labels)
+        metrics, middle_ovo, half_ovo, mean_ovo, std_ovo, middle_ovr, half_ovr, mean_ovr, std_ovr, percentages, auc_ovo_scores, auc_ovr_scores, embeddings_data = downstream_evaluation(trained_simclr_model, np_train_data, np_test_data, train_labels, test_labels)
         print(f'{bs}: {metrics}')
         auc_scores.append(metrics['auc_ovr'])
         auc_interval_scores.append([middle_ovo, half_ovo, mean_ovo, std_ovo, middle_ovr, half_ovr, mean_ovr, std_ovr])
@@ -365,7 +384,7 @@ def try_different_learning_rates(testing_flag, transformation_indices, lrs, batc
         user_datasets, patient_to_rhythm_dict, test_train_split_dict, working_directory = get_datasets_from_paths(testing_flag)
         np_train_data, train_labels, train_labels_dict, np_test_data, test_labels, test_labels_dict = create_train_test_datasets(user_datasets, patient_to_rhythm_dict, test_train_split_dict, working_directory)
         trained_simclr_model, epoch_losses = train_simclr(testing_flag, np_train_data, transformation_indices=transformation_indices, lr=lr, batch_size=batch_size, epoch_number=epoch_number)
-        metrics, middle_ovo, half_ovo, mean_ovo, std_ovo, middle_ovr, half_ovr, mean_ovr, std_ovr = downstream_evaluation(trained_simclr_model, np_train_data, np_test_data, train_labels, test_labels)
+        metrics, middle_ovo, half_ovo, mean_ovo, std_ovo, middle_ovr, half_ovr, mean_ovr, std_ovr, percentages, auc_ovo_scores, auc_ovr_scores, embeddings_data = downstream_evaluation(trained_simclr_model, np_train_data, np_test_data, train_labels, test_labels)
         print(f'{lr}: {metrics}')
         auc_scores.append(metrics['auc_ovr'])
         auc_interval_scores.append([middle_ovo, half_ovo, mean_ovo, std_ovo, middle_ovr, half_ovr, mean_ovr, std_ovr])
@@ -377,29 +396,297 @@ def try_different_learning_rates(testing_flag, transformation_indices, lrs, batc
         print('----------------')
 
 def main(testing_flag, transformation_indices, lr, batch_size, epoch_number):
+    start_time = datetime.datetime.now()
+    start_time_str = start_time.strftime("%Y%m%d-%H%M%S")
+    string_indices = "".join([str(num) for num in transformation_indices])
+    save_name = f'{start_time_str}_testing-{testing_flag}_bs-{batch_size}_transformations-{string_indices}_lr-{lr}'
+
+    path_to_embeddings = os.path.join(os.getcwd(), "embeddings", "chapman", "cardiac", "simclr")
+    try:
+        if not os.path.exists(path_to_embeddings):
+            os.makedirs(path_to_embeddings)
+    except OSError as err:
+        print(err)
+
+    path_to_training_percentages = os.path.join(os.getcwd(), "training_percentage", "chapman", "cardiac", "simclr")
+    try:
+        if not os.path.exists(path_to_training_percentages):
+            os.makedirs(path_to_training_percentages)
+    except OSError as err:
+        print(err)
+    
+
     user_datasets, patient_to_rhythm_dict, test_train_split_dict, working_directory = get_datasets_from_paths(testing_flag)
     np_train_data, train_labels, train_labels_dict, np_test_data, test_labels, test_labels_dict = create_train_test_datasets(user_datasets, patient_to_rhythm_dict, test_train_split_dict, working_directory)
 
     trained_simclr_model, epoch_losses = train_simclr(testing_flag, np_train_data, transformation_indices=transformation_indices, lr=lr, batch_size=batch_size, epoch_number=epoch_number)
     
-    metrics, middle_ovo, half_ovo, mean_ovo, std_ovo, middle_ovr, half_ovr, mean_ovr, std_ovr = downstream_evaluation(trained_simclr_model, np_train_data, np_test_data, train_labels, test_labels)
+    metrics, middle_ovo, half_ovo, mean_ovo, std_ovo, middle_ovr, half_ovr, mean_ovr, std_ovr, percentages, auc_ovo_scores, auc_ovr_scores, embeddings_data = downstream_evaluation(trained_simclr_model, np_train_data, np_test_data, train_labels, test_labels)
     print(metrics)
     print_auc_intervals(middle_ovo, half_ovo, mean_ovo, std_ovo, middle_ovr, half_ovr, mean_ovr, std_ovr)
 
-def print_auc_intervals(middle_ovo, half_ovo, mean_ovo, std_ovo, middle_ovr, half_ovr, mean_ovr, std_ovr):
-    '''Print auc intervals in the following format:
-    mean +/- std
-    median +/- half_range'''
-    print(f"    auc ovo middle half: {middle_ovo:.2f} +/- {half_ovo:.2f}")
-    print(f"    auc ovo mean std: {mean_ovo:.2f} +/- {std_ovo:.2f}")
-    print(f"    auc ovr middle half: {middle_ovr:.2f} +/- {half_ovr:.2f}")
-    print(f"    auc ovr mean std: {mean_ovr:.2f} +/- {std_ovr:.2f}")
+    # save embeddings 
+    embeddings_save_path = os.path.join(path_to_embeddings, f'{save_name}.pickle')
+    print(f'embeddings save path: {embeddings_save_path}')
+    with open(embeddings_save_path, 'wb') as f:
+        pickle.dump(embeddings_data, f)
+    
+    # save different percentage training 
+    percentage_training_save_path = os.path.join(path_to_training_percentages, f'{save_name}.pickle')
+    print(f'trianing percentage path: {percentage_training_save_path}')
+    with open(percentage_training_save_path, 'wb') as f:
+        data = [percentages, auc_ovo_scores, auc_ovr_scores]
+        pickle.dump(data, f)
+
+def all_double_transforms_combo_00_16(testing_flag, transformation_indices, lr, batch_size, epoch_number):
+    '''For all 49 combinations of 2 transformations, return a list of f1_macro and micro scores. This function will take transforms 00 to 16 '''
+    transformation_metrics = {}
+    transformation_confidences = {}
+    transformation_percentages = {}
+    transformation_macro_at_50_percent = {}
+    start_time = datetime.datetime.now()
+    start_time_str = start_time.strftime("%Y%m%d-%H%M%S")
+
+    path_to_embeddings = os.path.join(os.getcwd(), "embeddings", "chapman", "cardiac", "simclr")
+    try:
+        if not os.path.exists(path_to_embeddings):
+            os.makedirs(path_to_embeddings)
+    except OSError as err:
+        print(err)
+
+    path_to_training_percentages = os.path.join(os.getcwd(), "training_percentage", "chapman", "cardiac", "simclr")
+    try:
+        if not os.path.exists(path_to_training_percentages):
+            os.makedirs(path_to_training_percentages)
+    except OSError as err:
+        print(err)
+
+    for i in [0, 1]:
+        for j in [0, 1, 2, 3, 4, 5, 6]:
+            transformation_indices = [i, j]
+            string_indices = "".join([str(num) for num in transformation_indices])
+            save_name = f'{start_time_str}_testing-{testing_flag}_bs-{batch_size}_transformations-{string_indices}_lr-{lr}'
+
+            np.random.seed(7)
+            user_datasets, patient_to_rhythm_dict, test_train_split_dict, working_directory = get_datasets_from_paths(testing_flag)
+            np_train_data, train_labels, train_labels_dict, np_test_data, test_labels, test_labels_dict = create_train_test_datasets(user_datasets, patient_to_rhythm_dict, test_train_split_dict, working_directory)
+
+            trained_simclr_model, epoch_losses = train_simclr(testing_flag, np_train_data, transformation_indices=transformation_indices, lr=lr, batch_size=batch_size, epoch_number=epoch_number)
+            
+            metrics, middle_ovo, half_ovo, mean_ovo, std_ovo, middle_ovr, half_ovr, mean_ovr, std_ovr, percentages, auc_ovo_scores, auc_ovr_scores, embeddings_data = downstream_evaluation(trained_simclr_model, np_train_data, np_test_data, train_labels, test_labels)
+            print(metrics)
+            print_auc_intervals(middle_ovo, half_ovo, mean_ovo, std_ovo, middle_ovr, half_ovr, mean_ovr, std_ovr)
+
+            # store to dictionary 
+            transformation_metrics[string_indices] = metrics 
+            transformation_confidences[string_indices] = [middle_ovo, half_ovo, mean_ovo, std_ovo, middle_ovr, half_ovr, mean_ovr, std_ovr]
+            transformation_percentages[string_indices] = [percentages, auc_ovo_scores, auc_ovr_scores]
+            macro_50_percent_data = auc_ovr_scores[4]
+            if macro_50_percent_data:
+                transformation_macro_at_50_percent[string_indices] = macro_50_percent_data
+            else:
+                transformation_macro_at_50_percent[string_indices] = mean_ovr
+
+        save_data = [transformation_metrics, transformation_confidences, transformation_percentages, transformation_macro_at_50_percent]
+        
+        path_to_double_transforms = os.path.join(os.getcwd(), "embeddings", "double_transforms")
+        if not os.path.exists(path_to_double_transforms):
+            os.makedirs(path_to_double_transforms)
+        save_name = f'{start_time_str}_testing-{testing_flag}_bs-{batch_size}_lr-{lr}_chapman_cardiac-00-16.pickle'
+        save_path = os.path.join(path_to_double_transforms, save_name)
+        print(f'all double transform path: {save_path}')
+        with open(save_path, 'wb') as f:
+            pickle.dump(save_data, f)
+
+def all_double_transforms_combo_20_36(testing_flag, transformation_indices, lr, batch_size, epoch_number):
+    '''For all 49 combinations of 2 transformations, return a list of f1_macro and micro scores. This function will take transforms 00 to 16 '''
+    transformation_metrics = {}
+    transformation_confidences = {}
+    transformation_percentages = {}
+    transformation_macro_at_50_percent = {}
+    start_time = datetime.datetime.now()
+    start_time_str = start_time.strftime("%Y%m%d-%H%M%S")
+
+    path_to_embeddings = os.path.join(os.getcwd(), "embeddings", "chapman", "cardiac", "simclr")
+    try:
+        if not os.path.exists(path_to_embeddings):
+            os.makedirs(path_to_embeddings)
+    except OSError as err:
+        print(err)
+
+    path_to_training_percentages = os.path.join(os.getcwd(), "training_percentage", "chapman", "cardiac", "simclr")
+    try:
+        if not os.path.exists(path_to_training_percentages):
+            os.makedirs(path_to_training_percentages)
+    except OSError as err:
+        print(err)
+
+    for i in [2, 3]:
+        for j in [0, 1, 2, 3, 4, 5, 6]:
+            transformation_indices = [i, j]
+            string_indices = "".join([str(num) for num in transformation_indices])
+            save_name = f'{start_time_str}_testing-{testing_flag}_bs-{batch_size}_transformations-{string_indices}_lr-{lr}'
+
+            np.random.seed(7)
+            user_datasets, patient_to_rhythm_dict, test_train_split_dict, working_directory = get_datasets_from_paths(testing_flag)
+            np_train_data, train_labels, train_labels_dict, np_test_data, test_labels, test_labels_dict = create_train_test_datasets(user_datasets, patient_to_rhythm_dict, test_train_split_dict, working_directory)
+
+            trained_simclr_model, epoch_losses = train_simclr(testing_flag, np_train_data, transformation_indices=transformation_indices, lr=lr, batch_size=batch_size, epoch_number=epoch_number)
+            
+            metrics, middle_ovo, half_ovo, mean_ovo, std_ovo, middle_ovr, half_ovr, mean_ovr, std_ovr, percentages, auc_ovo_scores, auc_ovr_scores, embeddings_data = downstream_evaluation(trained_simclr_model, np_train_data, np_test_data, train_labels, test_labels)
+            print(metrics)
+            print_auc_intervals(middle_ovo, half_ovo, mean_ovo, std_ovo, middle_ovr, half_ovr, mean_ovr, std_ovr)
+
+            # store to dictionary 
+            transformation_metrics[string_indices] = metrics 
+            transformation_confidences[string_indices] = [middle_ovo, half_ovo, mean_ovo, std_ovo, middle_ovr, half_ovr, mean_ovr, std_ovr]
+            transformation_percentages[string_indices] = [percentages, auc_ovo_scores, auc_ovr_scores]
+            macro_50_percent_data = auc_ovr_scores[4]
+            if macro_50_percent_data:
+                transformation_macro_at_50_percent[string_indices] = macro_50_percent_data
+            else:
+                transformation_macro_at_50_percent[string_indices] = mean_ovr
+
+        save_data = [transformation_metrics, transformation_confidences, transformation_percentages, transformation_macro_at_50_percent]
+        
+        path_to_double_transforms = os.path.join(os.getcwd(), "embeddings", "double_transforms")
+        if not os.path.exists(path_to_double_transforms):
+            os.makedirs(path_to_double_transforms)
+        save_name = f'{start_time_str}_testing-{testing_flag}_bs-{batch_size}_lr-{lr}_chapman_cardiac-00-16.pickle'
+        save_path = os.path.join(path_to_double_transforms, save_name)
+        print(f'all double transform path: {save_path}')
+        with open(save_path, 'wb') as f:
+            pickle.dump(save_data, f)
+
+def all_double_transforms_combo_40_56(testing_flag, transformation_indices, lr, batch_size, epoch_number):
+    '''For all 49 combinations of 2 transformations, return a list of f1_macro and micro scores. This function will take transforms 00 to 16 '''
+    transformation_metrics = {}
+    transformation_confidences = {}
+    transformation_percentages = {}
+    transformation_macro_at_50_percent = {}
+    start_time = datetime.datetime.now()
+    start_time_str = start_time.strftime("%Y%m%d-%H%M%S")
+
+    path_to_embeddings = os.path.join(os.getcwd(), "embeddings", "chapman", "cardiac", "simclr")
+    try:
+        if not os.path.exists(path_to_embeddings):
+            os.makedirs(path_to_embeddings)
+    except OSError as err:
+        print(err)
+
+    path_to_training_percentages = os.path.join(os.getcwd(), "training_percentage", "chapman", "cardiac", "simclr")
+    try:
+        if not os.path.exists(path_to_training_percentages):
+            os.makedirs(path_to_training_percentages)
+    except OSError as err:
+        print(err)
+
+    for i in [4, 5]:
+        for j in [0, 1, 2, 3, 4, 5, 6]:
+            transformation_indices = [i, j]
+            string_indices = "".join([str(num) for num in transformation_indices])
+            save_name = f'{start_time_str}_testing-{testing_flag}_bs-{batch_size}_transformations-{string_indices}_lr-{lr}'
+
+            np.random.seed(7)
+            user_datasets, patient_to_rhythm_dict, test_train_split_dict, working_directory = get_datasets_from_paths(testing_flag)
+            np_train_data, train_labels, train_labels_dict, np_test_data, test_labels, test_labels_dict = create_train_test_datasets(user_datasets, patient_to_rhythm_dict, test_train_split_dict, working_directory)
+
+            trained_simclr_model, epoch_losses = train_simclr(testing_flag, np_train_data, transformation_indices=transformation_indices, lr=lr, batch_size=batch_size, epoch_number=epoch_number)
+            
+            metrics, middle_ovo, half_ovo, mean_ovo, std_ovo, middle_ovr, half_ovr, mean_ovr, std_ovr, percentages, auc_ovo_scores, auc_ovr_scores, embeddings_data = downstream_evaluation(trained_simclr_model, np_train_data, np_test_data, train_labels, test_labels)
+            print(metrics)
+            print_auc_intervals(middle_ovo, half_ovo, mean_ovo, std_ovo, middle_ovr, half_ovr, mean_ovr, std_ovr)
+
+            # store to dictionary 
+            transformation_metrics[string_indices] = metrics 
+            transformation_confidences[string_indices] = [middle_ovo, half_ovo, mean_ovo, std_ovo, middle_ovr, half_ovr, mean_ovr, std_ovr]
+            transformation_percentages[string_indices] = [percentages, auc_ovo_scores, auc_ovr_scores]
+            macro_50_percent_data = auc_ovr_scores[4]
+            if macro_50_percent_data:
+                transformation_macro_at_50_percent[string_indices] = macro_50_percent_data
+            else:
+                transformation_macro_at_50_percent[string_indices] = mean_ovr
+
+        save_data = [transformation_metrics, transformation_confidences, transformation_percentages, transformation_macro_at_50_percent]
+        
+        path_to_double_transforms = os.path.join(os.getcwd(), "embeddings", "double_transforms")
+        if not os.path.exists(path_to_double_transforms):
+            os.makedirs(path_to_double_transforms)
+        save_name = f'{start_time_str}_testing-{testing_flag}_bs-{batch_size}_lr-{lr}_chapman_cardiac-00-16.pickle'
+        save_path = os.path.join(path_to_double_transforms, save_name)
+        print(f'all double transform path: {save_path}')
+        with open(save_path, 'wb') as f:
+            pickle.dump(save_data, f)
+
+def all_double_transforms_combo_60_66(testing_flag, transformation_indices, lr, batch_size, epoch_number):
+    '''For all 49 combinations of 2 transformations, return a list of f1_macro and micro scores. This function will take transforms 00 to 16 '''
+    transformation_metrics = {}
+    transformation_confidences = {}
+    transformation_percentages = {}
+    transformation_macro_at_50_percent = {}
+    start_time = datetime.datetime.now()
+    start_time_str = start_time.strftime("%Y%m%d-%H%M%S")
+
+    path_to_embeddings = os.path.join(os.getcwd(), "embeddings", "chapman", "cardiac", "simclr")
+    try:
+        if not os.path.exists(path_to_embeddings):
+            os.makedirs(path_to_embeddings)
+    except OSError as err:
+        print(err)
+
+    path_to_training_percentages = os.path.join(os.getcwd(), "training_percentage", "chapman", "cardiac", "simclr")
+    try:
+        if not os.path.exists(path_to_training_percentages):
+            os.makedirs(path_to_training_percentages)
+    except OSError as err:
+        print(err)
+
+    for i in [6]:
+        for j in [0, 1, 2, 3, 4, 5, 6]:
+            transformation_indices = [i, j]
+            string_indices = "".join([str(num) for num in transformation_indices])
+            save_name = f'{start_time_str}_testing-{testing_flag}_bs-{batch_size}_transformations-{string_indices}_lr-{lr}'
+
+            np.random.seed(7)
+            user_datasets, patient_to_rhythm_dict, test_train_split_dict, working_directory = get_datasets_from_paths(testing_flag)
+            np_train_data, train_labels, train_labels_dict, np_test_data, test_labels, test_labels_dict = create_train_test_datasets(user_datasets, patient_to_rhythm_dict, test_train_split_dict, working_directory)
+
+            trained_simclr_model, epoch_losses = train_simclr(testing_flag, np_train_data, transformation_indices=transformation_indices, lr=lr, batch_size=batch_size, epoch_number=epoch_number)
+            
+            metrics, middle_ovo, half_ovo, mean_ovo, std_ovo, middle_ovr, half_ovr, mean_ovr, std_ovr, percentages, auc_ovo_scores, auc_ovr_scores, embeddings_data = downstream_evaluation(trained_simclr_model, np_train_data, np_test_data, train_labels, test_labels)
+            print(metrics)
+            print_auc_intervals(middle_ovo, half_ovo, mean_ovo, std_ovo, middle_ovr, half_ovr, mean_ovr, std_ovr)
+
+            # store to dictionary 
+            transformation_metrics[string_indices] = metrics 
+            transformation_confidences[string_indices] = [middle_ovo, half_ovo, mean_ovo, std_ovo, middle_ovr, half_ovr, mean_ovr, std_ovr]
+            transformation_percentages[string_indices] = [percentages, auc_ovo_scores, auc_ovr_scores]
+            macro_50_percent_data = auc_ovr_scores[4]
+            if macro_50_percent_data:
+                transformation_macro_at_50_percent[string_indices] = macro_50_percent_data
+            else:
+                transformation_macro_at_50_percent[string_indices] = mean_ovr
+
+        save_data = [transformation_metrics, transformation_confidences, transformation_percentages, transformation_macro_at_50_percent]
+        
+        path_to_double_transforms = os.path.join(os.getcwd(), "embeddings", "double_transforms")
+        if not os.path.exists(path_to_double_transforms):
+            os.makedirs(path_to_double_transforms)
+        save_name = f'{start_time_str}_testing-{testing_flag}_bs-{batch_size}_lr-{lr}_chapman_cardiac-00-16.pickle'
+        save_path = os.path.join(path_to_double_transforms, save_name)
+        print(f'all double transform path: {save_path}')
+        with open(save_path, 'wb') as f:
+            pickle.dump(save_data, f)
 
 
 if __name__ == "__main__":
     # testing_flag, transformation_indices, lr, batch_size, epoch_number = True, [[0,1], [0, 2]], 0.01, 128, 100
     testing_flag, transformation_indices, lr, batch_size, epoch_number = parse_arguments(sys.argv)
-    main(testing_flag, transformation_indices, lr, batch_size, epoch_number)
+    # main(testing_flag, transformation_indices, lr, batch_size, epoch_number)
+    all_double_transforms_combo_00_16(testing_flag, transformation_indices, lr, batch_size, epoch_number)
+    all_double_transforms_combo_20_36(testing_flag, transformation_indices, lr, batch_size, epoch_number)
+    all_double_transforms_combo_40_56(testing_flag, transformation_indices, lr, batch_size, epoch_number)
+    all_double_transforms_combo_60_66(testing_flag, transformation_indices, lr, batch_size, epoch_number)
     # try_different_transformations(testing_flag, transformation_indices, lr, batch_size, epoch_number)
     # try_different_batch_sizes(testing_flag, transformation_indices, lr, batch_size, epoch_number)
     # try_different_learning_rates(testing_flag, transformation_indices, lr, batch_size, epoch_number)

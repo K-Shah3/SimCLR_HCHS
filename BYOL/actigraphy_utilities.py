@@ -672,9 +672,9 @@ class BYOL_MS(pl.LightningModule):
         projection_size: int = 256,
         hidden_size: int = 4096,
         augment_fn: Callable = None,
+        batch_size: int = 512,
         beta: float = 0.999,
         segment_number = 2,
-        batch_size = 512, 
         **hparams,
     ):
         super().__init__()
@@ -687,6 +687,7 @@ class BYOL_MS(pl.LightningModule):
         self.hparams = hparams
         self._target = None
         self.segment_number = segment_number
+        self.batch_size = batch_size
         self.encoder(torch.zeros(2, 1, *image_size))
 
     def forward(self, x: Tensor) -> Tensor:

@@ -262,6 +262,7 @@ def predict(user_datasets, model, np_train, np_test, batch_size,
 
     # save train and test X and y
     save_path = os.path.join(path_to_embeddings, f'{save_name}.pickle')
+    print(f'save path of embeddings: {save_path}')
     with open(save_path, 'wb') as f:
         data = [train_X, test_X, train_y, test_y]
         pickle.dump(data, f)
@@ -283,8 +284,8 @@ def predict(user_datasets, model, np_train, np_test, batch_size,
 
     metrics = {'accuracy' : accuracy, 'f1_micro': f1_micro, 'f1_macro': f1_macro, 'confusion_mat': confusion_mat}
     percentages, f1_macro_scores, f1_micro_scores = different_percentage_training(train_X, test_X, train_y, test_y)
-
-    return metrics, confidences
+    percentage_data = [percentages, f1_macro_scores, f1_micro_scores]
+    return metrics, confidences, percentage_data
 
 def get_confidence_interval_f1_micro_macro(y_true, y_pred, n_bootstraps=500):
     '''Using bootstrap with replacement calculate the f1 micro and macro scores n_bootstrap number of times to get the 
@@ -356,9 +357,11 @@ def different_percentage_training(X_train, X_test, y_train, y_test):
     return percentages, f1_macro_scores, f1_micro_scores
 
 def main(testing_flag, window_size, batch_size, non_testing_simclr_epochs, transformation_indices, initial_learning_rate, non_testing_linear_eval_epochs, aggregate, temperature, hchs_or_mesa, disease):
+    np.random.seed(7)
     start_time = datetime.datetime.now()
     start_time_str = start_time.strftime("%Y%m%d-%H%M%S")
-    save_name = f'{start_time_str}_testing-{testing_flag}_window-{window_size}_bs-{batch_size}_transformations-{transformation_indices}_lr-{initial_learning_rate}_agg-{aggregate}_temp-{temperature}'
+    string_indices = "".join([str(num) for num in transformation_indices])
+    save_name = f'{start_time_str}_testing-{testing_flag}_window-{window_size}_bs-{batch_size}_transformations-{string_indices}_lr-{initial_learning_rate}_agg-{aggregate}_temp-{temperature}'
 
     # get working directory and datasets from PickledFolder 
     working_directory, name_of_run, test_train_split_dict, disease_user_datasets, path_to_baseline_sueno_merge_no_na, path_to_embeddings = get_directories_and_name(testing_flag, window_size, batch_size, non_testing_simclr_epochs, transformation_indices, initial_learning_rate, non_testing_linear_eval_epochs, aggregate, temperature, hchs_or_mesa, disease)
@@ -379,19 +382,28 @@ def main(testing_flag, window_size, batch_size, non_testing_simclr_epochs, trans
 
     logistic_regression_clf = LogisticRegression(max_iter=10000)
 
-    metrics, confidences = predict(user_datasets, trained_simclr_model, np_train, np_test, batch_size, window_size, logistic_regression_clf, aggregate, train_user_window_list, test_user_window_list, path_to_embeddings, save_name)
+    metrics, confidences, percentage_data = predict(user_datasets, trained_simclr_model, np_train, np_test, batch_size, window_size, logistic_regression_clf, aggregate, train_user_window_list, test_user_window_list, path_to_embeddings, save_name)
     
+    path_to_training_percentages = os.path.join(os.getcwd(), "training_percentages", hchs_or_mesa, disease, "simclr")
+    if not os.path.exists(path_to_training_percentages):
+        os.makedirs(path_to_training_percentages)
+    
+    training_path = os.path.join(path_to_training_percentages, f'{save_name}.pickle')
+    print(f'save path of training percentages: {training_path}')
+    with open(training_path, 'wb') as f:
+        pickle.dump(percentage_data, f)
+
     print(f'{disease}')
-    print(f"    f1 macro: {metrics['f1_macro']:.2f}")
-    print(f"    f1 micro: {metrics['f1_micro']:.2f}")
+    print(f"    f1 macro: {metrics['f1_macro']:.3f}")
+    print(f"    f1 micro: {metrics['f1_micro']:.3f}")
     print(f'--------------------')
 
     pm_micro = confidences['upper_micro'] - confidences['average_micro']
     pm_macro = confidences['upper_macro'] - confidences['average_macro']
-    print(f"    f1 micro 90% range: {confidences['average_micro']:.2f} +/- {pm_micro:.2f}")
-    print(f"    f1 macro 90% range: {confidences['average_macro']:.2f} +/- {pm_macro:.2f}")
-    print(f"    f1 micro mean std: {confidences['mean_micro']:.2f} +/- {confidences['std_micro']:.2f} ")
-    print(f"    f1 macro mean std: {confidences['mean_macro']:.2f} +/- {confidences['std_macro']:.2f} ")
+    print(f"    f1 micro 90% range: {confidences['average_micro']:.3f} +/- {pm_micro:.3f}")
+    print(f"    f1 macro 90% range: {confidences['average_macro']:.3f} +/- {pm_macro:.3f}")
+    print(f"    f1 micro mean std: {confidences['mean_micro']:.3f} +/- {confidences['std_micro']:.3f} ")
+    print(f"    f1 macro mean std: {confidences['mean_macro']:.3f} +/- {confidences['std_macro']:.3f} ")
 
 def different_transforms_main(testing_flag, window_size, batch_size, non_testing_simclr_epochs, transformation_indices_list, initial_learning_rate, non_testing_linear_eval_epochs, aggregate, temperature, hchs_or_mesa, disease):
     for transformation_indices in transformation_indices_list:
@@ -399,14 +411,226 @@ def different_transforms_main(testing_flag, window_size, batch_size, non_testing
         main(testing_flag, window_size, batch_size, non_testing_simclr_epochs, transformation_indices, initial_learning_rate, non_testing_linear_eval_epochs, aggregate, temperature, hchs_or_mesa, disease)
         print(f'-----------------------')
 
+def all_double_transforms_combo_00_16(testing_flag, window_size, batch_size, non_testing_simclr_epochs, non_testing_linear_eval_epochs, aggregate, temperature, hchs_or_mesa, disease):
+    '''For all 49 combinations of 2 transformations, return a list of f1_macro and micro scores '''
+    transformation_metrics = {}
+    transformation_confidences = {}
+    transformation_percentages = {}
+    transformation_macro_at_50_percent = {}
+    start_time = datetime.datetime.now()
+    start_time_str = start_time.strftime("%Y%m%d-%H%M%S")
+    for i in [0, 1]:
+        for j in [0, 1, 2, 3, 4, 5, 6]:
+            transformation_indices = [i, j]
+            np.random.seed(7)
+            start_time = datetime.datetime.now()
+            start_time_str = start_time.strftime("%Y%m%d-%H%M%S")
+            string_indices = "".join([str(num) for num in transformation_indices])
+            save_name = f'{start_time_str}_testing-{testing_flag}_window-{window_size}_bs-{batch_size}_transformations-{string_indices}_lr-{initial_learning_rate}_agg-{aggregate}_temp-{temperature}'
+
+            # get working directory and datasets from PickledFolder 
+            working_directory, name_of_run, test_train_split_dict, disease_user_datasets, path_to_baseline_sueno_merge_no_na, path_to_embeddings = get_directories_and_name(testing_flag, window_size, batch_size, non_testing_simclr_epochs, transformation_indices, initial_learning_rate, non_testing_linear_eval_epochs, aggregate, temperature, hchs_or_mesa, disease)
+            user_datasets = disease_user_datasets[disease]
+            # dataset with wake 
+            input_shape = (window_size, 6)
+            test_users = test_train_split_dict['test']
+            train_users = test_train_split_dict['train']
+
+            np_train, np_test, train_user_window_list, test_user_window_list = hchs_mesa_data_pre_processing.pre_process_dataset_composite(user_datasets, train_users, test_users, window_size=window_size, shift=window_size//2, normalise_dataset=True)
+
+            trained_simclr_model = train_simclr(np_train, testing_flag, window_size, batch_size, non_testing_simclr_epochs, transformation_indices, initial_learning_rate, non_testing_linear_eval_epochs, aggregate, temperature)
+
+            logistic_regression_clf = LogisticRegression(max_iter=10000)
+
+            metrics, confidences, percentage_data = predict(user_datasets, trained_simclr_model, np_train, np_test, batch_size, window_size, logistic_regression_clf, aggregate, train_user_window_list, test_user_window_list, path_to_embeddings, save_name)
+            
+            # store to dictionary 
+            transformation_metrics[string_indices] = metrics 
+            transformation_confidences[string_indices] = confidences
+            transformation_percentages[string_indices] = percentage_data
+            macro_50_percent_data = percentage_data[1][4]
+            transformation_macro_at_50_percent[string_indices] = macro_50_percent_data
+
+        save_data = [transformation_metrics, transformation_confidences, transformation_percentages, transformation_macro_at_50_percent]
+        
+        path_to_double_transforms = os.path.join(os.getcwd(), "embeddings", "double_transforms")
+        if not os.path.exists(path_to_double_transforms):
+            os.makedirs(path_to_double_transforms)
+        save_name = f'{start_time_str}_testing-{testing_flag}_window-{window_size}_bs-{batch_size}_lr-{initial_learning_rate}_agg-{aggregate}_temp-{temperature}_{hchs_or_mesa}_{disease}-00-16.pickle'
+        save_path = os.path.join(path_to_double_transforms, save_name)
+        print(f'all double transform path: {save_path}')
+        with open(save_path, 'wb') as f:
+            pickle.dump(save_data, f)
+
+def all_double_transforms_combo_20_36(testing_flag, window_size, batch_size, non_testing_simclr_epochs, non_testing_linear_eval_epochs, aggregate, temperature, hchs_or_mesa, disease):
+    '''For all 49 combinations of 2 transformations, return a list of f1_macro and micro scores '''
+    transformation_metrics = {}
+    transformation_confidences = {}
+    transformation_percentages = {}
+    transformation_macro_at_50_percent = {}
+    start_time = datetime.datetime.now()
+    start_time_str = start_time.strftime("%Y%m%d-%H%M%S")
+    for i in [2,3]:
+        for j in [0, 1, 2, 3, 4, 5, 6]:
+            transformation_indices = [i, j]
+            np.random.seed(7)
+            start_time = datetime.datetime.now()
+            start_time_str = start_time.strftime("%Y%m%d-%H%M%S")
+            string_indices = "".join([str(num) for num in transformation_indices])
+            save_name = f'{start_time_str}_testing-{testing_flag}_window-{window_size}_bs-{batch_size}_transformations-{string_indices}_lr-{initial_learning_rate}_agg-{aggregate}_temp-{temperature}'
+
+            # get working directory and datasets from PickledFolder 
+            working_directory, name_of_run, test_train_split_dict, disease_user_datasets, path_to_baseline_sueno_merge_no_na, path_to_embeddings = get_directories_and_name(testing_flag, window_size, batch_size, non_testing_simclr_epochs, transformation_indices, initial_learning_rate, non_testing_linear_eval_epochs, aggregate, temperature, hchs_or_mesa, disease)
+            user_datasets = disease_user_datasets[disease]
+            # dataset with wake 
+            input_shape = (window_size, 6)
+            test_users = test_train_split_dict['test']
+            train_users = test_train_split_dict['train']
+
+            np_train, np_test, train_user_window_list, test_user_window_list = hchs_mesa_data_pre_processing.pre_process_dataset_composite(user_datasets, train_users, test_users, window_size=window_size, shift=window_size//2, normalise_dataset=True)
+
+            trained_simclr_model = train_simclr(np_train, testing_flag, window_size, batch_size, non_testing_simclr_epochs, transformation_indices, initial_learning_rate, non_testing_linear_eval_epochs, aggregate, temperature)
+
+            logistic_regression_clf = LogisticRegression(max_iter=10000)
+
+            metrics, confidences, percentage_data = predict(user_datasets, trained_simclr_model, np_train, np_test, batch_size, window_size, logistic_regression_clf, aggregate, train_user_window_list, test_user_window_list, path_to_embeddings, save_name)
+            
+            # store to dictionary 
+            transformation_metrics[string_indices] = metrics 
+            transformation_confidences[string_indices] = confidences
+            transformation_percentages[string_indices] = percentage_data
+            macro_50_percent_data = percentage_data[1][4]
+            transformation_macro_at_50_percent[string_indices] = macro_50_percent_data
+
+        save_data = [transformation_metrics, transformation_confidences, transformation_percentages, transformation_macro_at_50_percent]
+        
+        path_to_double_transforms = os.path.join(os.getcwd(), "embeddings", "double_transforms")
+        if not os.path.exists(path_to_double_transforms):
+            os.makedirs(path_to_double_transforms)
+        save_name = f'{start_time_str}_testing-{testing_flag}_window-{window_size}_bs-{batch_size}_lr-{initial_learning_rate}_agg-{aggregate}_temp-{temperature}_{hchs_or_mesa}_{disease}-20-36.pickle'
+        save_path = os.path.join(path_to_double_transforms, save_name)
+        print(f'all double transform path: {save_path}')
+        with open(save_path, 'wb') as f:
+            pickle.dump(save_data, f)
+
+def all_double_transforms_combo_40_56(testing_flag, window_size, batch_size, non_testing_simclr_epochs, non_testing_linear_eval_epochs, aggregate, temperature, hchs_or_mesa, disease):
+    '''For all 49 combinations of 2 transformations, return a list of f1_macro and micro scores '''
+    transformation_metrics = {}
+    transformation_confidences = {}
+    transformation_percentages = {}
+    transformation_macro_at_50_percent = {}
+    start_time = datetime.datetime.now()
+    start_time_str = start_time.strftime("%Y%m%d-%H%M%S")
+    for i in [4, 5]:
+        for j in [0, 1, 2, 3, 4, 5, 6]:
+            transformation_indices = [i, j]
+            np.random.seed(7)
+            start_time = datetime.datetime.now()
+            start_time_str = start_time.strftime("%Y%m%d-%H%M%S")
+            string_indices = "".join([str(num) for num in transformation_indices])
+            save_name = f'{start_time_str}_testing-{testing_flag}_window-{window_size}_bs-{batch_size}_transformations-{string_indices}_lr-{initial_learning_rate}_agg-{aggregate}_temp-{temperature}'
+
+            # get working directory and datasets from PickledFolder 
+            working_directory, name_of_run, test_train_split_dict, disease_user_datasets, path_to_baseline_sueno_merge_no_na, path_to_embeddings = get_directories_and_name(testing_flag, window_size, batch_size, non_testing_simclr_epochs, transformation_indices, initial_learning_rate, non_testing_linear_eval_epochs, aggregate, temperature, hchs_or_mesa, disease)
+            user_datasets = disease_user_datasets[disease]
+            # dataset with wake 
+            input_shape = (window_size, 6)
+            test_users = test_train_split_dict['test']
+            train_users = test_train_split_dict['train']
+
+            np_train, np_test, train_user_window_list, test_user_window_list = hchs_mesa_data_pre_processing.pre_process_dataset_composite(user_datasets, train_users, test_users, window_size=window_size, shift=window_size//2, normalise_dataset=True)
+
+            trained_simclr_model = train_simclr(np_train, testing_flag, window_size, batch_size, non_testing_simclr_epochs, transformation_indices, initial_learning_rate, non_testing_linear_eval_epochs, aggregate, temperature)
+
+            logistic_regression_clf = LogisticRegression(max_iter=10000)
+
+            metrics, confidences, percentage_data = predict(user_datasets, trained_simclr_model, np_train, np_test, batch_size, window_size, logistic_regression_clf, aggregate, train_user_window_list, test_user_window_list, path_to_embeddings, save_name)
+            
+            # store to dictionary 
+            transformation_metrics[string_indices] = metrics 
+            transformation_confidences[string_indices] = confidences
+            transformation_percentages[string_indices] = percentage_data
+            macro_50_percent_data = percentage_data[1][4]
+            transformation_macro_at_50_percent[string_indices] = macro_50_percent_data
+
+        save_data = [transformation_metrics, transformation_confidences, transformation_percentages, transformation_macro_at_50_percent]
+        
+        path_to_double_transforms = os.path.join(os.getcwd(), "embeddings", "double_transforms")
+        if not os.path.exists(path_to_double_transforms):
+            os.makedirs(path_to_double_transforms)
+        save_name = f'{start_time_str}_testing-{testing_flag}_window-{window_size}_bs-{batch_size}_lr-{initial_learning_rate}_agg-{aggregate}_temp-{temperature}_{hchs_or_mesa}_{disease}-40-56.pickle'
+        save_path = os.path.join(path_to_double_transforms, save_name)
+        print(f'all double transform path: {save_path}')
+        with open(save_path, 'wb') as f:
+            pickle.dump(save_data, f)
+
+def all_double_transforms_combo_60_66(testing_flag, window_size, batch_size, non_testing_simclr_epochs, non_testing_linear_eval_epochs, aggregate, temperature, hchs_or_mesa, disease):
+    '''For all 49 combinations of 2 transformations, return a list of f1_macro and micro scores '''
+    transformation_metrics = {}
+    transformation_confidences = {}
+    transformation_percentages = {}
+    transformation_macro_at_50_percent = {}
+    start_time = datetime.datetime.now()
+    start_time_str = start_time.strftime("%Y%m%d-%H%M%S")
+    for i in [6]:
+        for j in [0, 1, 2, 3, 4, 5, 6]:
+            transformation_indices = [i, j]
+            np.random.seed(7)
+            start_time = datetime.datetime.now()
+            start_time_str = start_time.strftime("%Y%m%d-%H%M%S")
+            string_indices = "".join([str(num) for num in transformation_indices])
+            save_name = f'{start_time_str}_testing-{testing_flag}_window-{window_size}_bs-{batch_size}_transformations-{string_indices}_lr-{initial_learning_rate}_agg-{aggregate}_temp-{temperature}'
+
+            # get working directory and datasets from PickledFolder 
+            working_directory, name_of_run, test_train_split_dict, disease_user_datasets, path_to_baseline_sueno_merge_no_na, path_to_embeddings = get_directories_and_name(testing_flag, window_size, batch_size, non_testing_simclr_epochs, transformation_indices, initial_learning_rate, non_testing_linear_eval_epochs, aggregate, temperature, hchs_or_mesa, disease)
+            user_datasets = disease_user_datasets[disease]
+            # dataset with wake 
+            input_shape = (window_size, 6)
+            test_users = test_train_split_dict['test']
+            train_users = test_train_split_dict['train']
+
+            np_train, np_test, train_user_window_list, test_user_window_list = hchs_mesa_data_pre_processing.pre_process_dataset_composite(user_datasets, train_users, test_users, window_size=window_size, shift=window_size//2, normalise_dataset=True)
+
+            trained_simclr_model = train_simclr(np_train, testing_flag, window_size, batch_size, non_testing_simclr_epochs, transformation_indices, initial_learning_rate, non_testing_linear_eval_epochs, aggregate, temperature)
+
+            logistic_regression_clf = LogisticRegression(max_iter=10000)
+
+            metrics, confidences, percentage_data = predict(user_datasets, trained_simclr_model, np_train, np_test, batch_size, window_size, logistic_regression_clf, aggregate, train_user_window_list, test_user_window_list, path_to_embeddings, save_name)
+            
+            # store to dictionary 
+            transformation_metrics[string_indices] = metrics 
+            transformation_confidences[string_indices] = confidences
+            transformation_percentages[string_indices] = percentage_data
+            macro_50_percent_data = percentage_data[1][4]
+            transformation_macro_at_50_percent[string_indices] = macro_50_percent_data
+
+        save_data = [transformation_metrics, transformation_confidences, transformation_percentages, transformation_macro_at_50_percent]
+        
+        path_to_double_transforms = os.path.join(os.getcwd(), "embeddings", "double_transforms")
+        if not os.path.exists(path_to_double_transforms):
+            os.makedirs(path_to_double_transforms)
+        save_name = f'{start_time_str}_testing-{testing_flag}_window-{window_size}_bs-{batch_size}_lr-{initial_learning_rate}_agg-{aggregate}_temp-{temperature}_{hchs_or_mesa}_{disease}-60-66.pickle'
+        save_path = os.path.join(path_to_double_transforms, save_name)
+        print(f'all double transform path: {save_path}')
+        with open(save_path, 'wb') as f:
+            pickle.dump(save_data, f)
+
+
+
+        
+
 
 
 if __name__ == '__main__':
-    # testing_flag, window_size, batch_size, non_testing_simclr_epochs, transformation_indices, initial_learning_rate, non_testing_linear_eval_epochs, plot_flag, predict_flag, aggregate, temperature, hchs_or_mesa, disease = parse_arguments(sys.argv)
-    testing_flag, window_size, batch_size, non_testing_simclr_epochs, transformation_indices, initial_learning_rate, non_testing_linear_eval_epochs, plot_flag, predict_flag, aggregate, temperature, hchs_or_mesa, disease = True, 512, 512, 3, [2,4,3,6,1], 0.1, 2, False, True, 'mean', 0.1, 'mesa', 'insomnia'
+    testing_flag, window_size, batch_size, non_testing_simclr_epochs, transformation_indices, initial_learning_rate, non_testing_linear_eval_epochs, plot_flag, predict_flag, aggregate, temperature, hchs_or_mesa, disease = parse_arguments(sys.argv)
+    # testing_flag, window_size, batch_size, non_testing_simclr_epochs, transformation_indices, initial_learning_rate, non_testing_linear_eval_epochs, plot_flag, predict_flag, aggregate, temperature, hchs_or_mesa, disease = True, 512, 512, 3, [2,4,3,6,1], 0.1, 2, False, True, 'mean', 0.1, 'mesa', 'insomnia'
     print('args read successfully, starting main')
     main(testing_flag, window_size, batch_size, non_testing_simclr_epochs, transformation_indices, initial_learning_rate, non_testing_linear_eval_epochs, aggregate, temperature, hchs_or_mesa, disease)
     # different_transforms_main(testing_flag, window_size, batch_size, non_testing_simclr_epochs, transformation_indices, initial_learning_rate, non_testing_linear_eval_epochs, aggregate, temperature, hchs_or_mesa, disease)
+    all_double_transforms_combo_00_16(testing_flag, window_size, batch_size, non_testing_simclr_epochs, non_testing_linear_eval_epochs, aggregate, temperature, hchs_or_mesa, disease)
+    all_double_transforms_combo_20_36(testing_flag, window_size, batch_size, non_testing_simclr_epochs, non_testing_linear_eval_epochs, aggregate, temperature, hchs_or_mesa, disease)
+    all_double_transforms_combo_40_56(testing_flag, window_size, batch_size, non_testing_simclr_epochs, non_testing_linear_eval_epochs, aggregate, temperature, hchs_or_mesa, disease)
+    all_double_transforms_combo_60_66(testing_flag, window_size, batch_size, non_testing_simclr_epochs, non_testing_linear_eval_epochs, aggregate, temperature, hchs_or_mesa, disease)
     print('done')
 
 

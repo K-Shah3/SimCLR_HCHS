@@ -350,7 +350,7 @@ def multiple_segment_main(testing_flag, hchs_or_mesa, batch_size, epoch_number, 
 
     byol_model = deepcopy(model)
     image_size = (train_dataset.average_length // segment_number, 5)
-    byol = actigraphy_utilities.BYOL_MS(byol_model, image_size=image_size, projection_size=projection_dim, segment_number=segment_number)
+    byol = actigraphy_utilities.BYOL_MS(byol_model, image_size=image_size, projection_size=projection_dim, segment_number=segment_number, batch_size=batch_size)
     byol_trainer = pl.Trainer(
         max_epochs=epoch_number,
         accumulate_grad_batches=2048 // batch_size,
