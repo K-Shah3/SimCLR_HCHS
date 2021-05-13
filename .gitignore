@@ -29,3 +29,6 @@ BYOL/byol_chapman/plots/projection_dim_auc_False_True_128_256_32-64-128-256-512_
 /BYOL/byol_chapman/read_results.py
 /training_percentage
 /embeddings
+/save_models
+/BYOL/save_models
+/SupervisedClassification/save_models

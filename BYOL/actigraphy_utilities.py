@@ -346,7 +346,19 @@ def get_trained_autoencoder(user_datasets, test_train_split_dict, batch_size=128
             optimizer.step()
             if epoch % 10 == 0:
                 print('epoch [{}/{}], loss:{:.4f}'.format(epoch + 1, num_epochs, loss.item()))
+    
+    save_model_directory = os.path.join("save_models", "byol")
+    try:
+        if not os.path.exists(save_model_directory):
+            os.makedirs(save_model_directory)
+    except OSError as err:
+        print(err)
 
+    start_time = datetime.datetime.now()
+    start_time_str = start_time.strftime("%Y%m%d-%H%M%S")
+    save_path = os.path.join(save_model_directory, f'{start_time_str}-{batch_size}-{latent_dim}-hchs-mesa.h5')
+    print(save_path)
+    torch.save(model, save_path)
     # get validation 
     encoder = model.encoder
     decoder = model.decoder 

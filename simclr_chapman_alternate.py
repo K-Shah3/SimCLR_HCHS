@@ -201,10 +201,20 @@ def train_simclr(testing_flag, np_train, transformation_indices=[0,1], lr=0.01, 
 
     base_model = simclr_models.create_base_model(input_shape, model_name="base_model")
     simclr_model = simclr_models.attach_simclr_head(base_model)
-    # simclr_model.summary()
+    simclr_model.summary()
 
     trained_simclr_model, epoch_losses = simclr_utitlities.simclr_train_model(simclr_model, np_train, optimizer, batch_size, transformation_function, temperature=temperature, epochs=epochs, is_trasnform_function_vectorized=True, verbose=1)
+    save_model_directory = os.path.join("save_models", "simclr")
+    try:
+        if not os.path.exists(save_model_directory):
+            os.makedirs(save_model_directory)
+    except OSError as err:
+        print(err)
 
+    start_time = datetime.datetime.now()
+    start_time_str = start_time.strftime("%Y%m%d-%H%M%S")
+    save_path = os.path.join(save_model_directory, f'{start_time_str}-{testing_flag}-{transformation_indices}-{batch_size}-{epoch_number}.h5')
+    trained_simclr_model.save(save_path)
     return trained_simclr_model, epoch_losses
 
 def get_confidence_interval_auc(y_true, y_pred, n_bootstraps=500):
@@ -682,11 +692,11 @@ def all_double_transforms_combo_60_66(testing_flag, transformation_indices, lr, 
 if __name__ == "__main__":
     # testing_flag, transformation_indices, lr, batch_size, epoch_number = True, [[0,1], [0, 2]], 0.01, 128, 100
     testing_flag, transformation_indices, lr, batch_size, epoch_number = parse_arguments(sys.argv)
-    # main(testing_flag, transformation_indices, lr, batch_size, epoch_number)
-    all_double_transforms_combo_00_16(testing_flag, transformation_indices, lr, batch_size, epoch_number)
-    all_double_transforms_combo_20_36(testing_flag, transformation_indices, lr, batch_size, epoch_number)
-    all_double_transforms_combo_40_56(testing_flag, transformation_indices, lr, batch_size, epoch_number)
-    all_double_transforms_combo_60_66(testing_flag, transformation_indices, lr, batch_size, epoch_number)
+    main(testing_flag, transformation_indices, lr, batch_size, epoch_number)
+    # all_double_transforms_combo_00_16(testing_flag, transformation_indices, lr, batch_size, epoch_number)
+    # all_double_transforms_combo_20_36(testing_flag, transformation_indices, lr, batch_size, epoch_number)
+    # all_double_transforms_combo_40_56(testing_flag, transformation_indices, lr, batch_size, epoch_number)
+    # all_double_transforms_combo_60_66(testing_flag, transformation_indices, lr, batch_size, epoch_number)
     # try_different_transformations(testing_flag, transformation_indices, lr, batch_size, epoch_number)
     # try_different_batch_sizes(testing_flag, transformation_indices, lr, batch_size, epoch_number)
     # try_different_learning_rates(testing_flag, transformation_indices, lr, batch_size, epoch_number)

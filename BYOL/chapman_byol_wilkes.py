@@ -2,8 +2,8 @@ import random
 from typing import Callable, Tuple, Union, Dict, List
 import os
 from os import cpu_count
-# import pickle5 as pickle
-import pickle 
+import pickle5 as pickle
+# import pickle 
 import numpy as np
 from copy import deepcopy
 from itertools import chain
@@ -274,10 +274,10 @@ def print_auc_intervals(middle_ovo, half_ovo, mean_ovo, std_ovo, middle_ovr, hal
     '''Print auc intervals in the following format:
     mean +/- std
     median +/- half_range'''
-    print(f"    auc ovo middle half: {middle_ovo:.2f} +/- {half_ovo:.2f}")
-    print(f"    auc ovo mean std: {mean_ovo:.2f} +/- {std_ovo:.2f}")
-    print(f"    auc ovr middle half: {middle_ovr:.2f} +/- {half_ovr:.2f}")
-    print(f"    auc ovr mean std: {mean_ovr:.2f} +/- {std_ovr:.2f}")
+    print(f"    auc ovo middle half: {middle_ovo:.3f} +/- {half_ovo:.3f}")
+    print(f"    auc ovo mean std: {mean_ovo:.3f} +/- {std_ovo:.3f}")
+    print(f"    auc ovr middle half: {middle_ovr:.3f} +/- {half_ovr:.3f}")
+    print(f"    auc ovr mean std: {mean_ovr:.3f} +/- {std_ovr:.3f}")
 
 def get_confidence_interval_auc(y_true, y_pred, n_bootstraps=500):
     '''Using bootstrap with replacement calculate the f1 micro and macro scores n_bootstrap number of times to get the 
@@ -286,18 +286,21 @@ def get_confidence_interval_auc(y_true, y_pred, n_bootstraps=500):
     rng=np.random.RandomState(1234)
     bootstrapped_auc_ovo_scores = []
     bootstrapped_auc_ovr_scores = []
-    for _ in range(n_bootstraps):
+    for i in range(n_bootstraps):
         # bootstrap by sampling with replacement on the prediction indices 
         indices = rng.random_integers(0, len(y_pred) - 1, len(y_pred))
         # we need at least one positive and one negative sample for ROC AUC 
         if len(np.unique(y_true[indices])) < 2:
             # reject the sample
             continue 
-
-        auc_ovo = roc_auc_score(y_true[indices], y_pred[indices], multi_class='ovo')
-        auc_ovr = roc_auc_score(y_true[indices], y_pred[indices], multi_class='ovr')
-        bootstrapped_auc_ovo_scores.append(auc_ovo)
-        bootstrapped_auc_ovr_scores.append(auc_ovr)
+        try:
+            auc_ovo = roc_auc_score(y_true[indices], y_pred[indices], multi_class='ovo')
+            auc_ovr = roc_auc_score(y_true[indices], y_pred[indices], multi_class='ovr')
+            bootstrapped_auc_ovo_scores.append(auc_ovo)
+            bootstrapped_auc_ovr_scores.append(auc_ovr)
+        except (ValueError, TypeError):
+            print(f'auc failed skipping {i}')
+            continue
 
     sorted_auc_ovo_scores = np.array(bootstrapped_auc_ovo_scores)
     sorted_auc_ovo_scores.sort()
@@ -323,7 +326,7 @@ def get_confidence_interval_auc(y_true, y_pred, n_bootstraps=500):
 def different_percentage_training(X_train, X_test, y_train, y_test):
     '''Given train and test representations with labelled data, use different percentages of the train data to 
     train the logistic regression classifier'''
-    percentages = [1.0]
+    percentages = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
     train_length = X_train.shape[0]
     auc_ovo_scores = []
     auc_ovr_scores = []
@@ -334,15 +337,20 @@ def different_percentage_training(X_train, X_test, y_train, y_test):
         idx = [0]
         while len(np.unique(y_train[idx])) < 2:
             idx = np.random.choice(train_length, number_of_rows, replace=False)
-        new_X_train = X_train[idx, :]
-        new_y_train = y_train[idx]
-        log_reg_clf.fit(new_X_train, new_y_train)
-        # predict X_test with the trained classifier
-        y_proba = log_reg_clf.predict_proba(X_test)
-        auc_ovo = roc_auc_score(y_test, y_proba, multiclass='ovo')
-        auc_ovr = roc_auc_score(y_test, y_proba, multiclass='ovr')
-        auc_ovo_scores.append(auc_ovo)
-        auc_ovr_scores.append(auc_ovr)
+        try:
+            new_X_train = X_train[idx, :]
+            new_y_train = y_train[idx]
+            log_reg_clf.fit(new_X_train, new_y_train)
+            # predict X_test with the trained classifier
+            y_proba = log_reg_clf.predict_proba(X_test)
+            auc_ovo = roc_auc_score(y_test, y_proba, multi_class='ovo')
+            auc_ovr = roc_auc_score(y_test, y_proba, multi_class='ovr')
+            auc_ovo_scores.append(auc_ovo)
+            auc_ovr_scores.append(auc_ovr)
+        except (TypeError, ValueError):
+            print(f'{percentage} skipped')
+            auc_ovo_scores.append(None)
+            auc_ovr_scores.append(None)
 
     for percentage, auc_ovo, auc_ovr in zip(percentages, auc_ovo_scores, auc_ovr_scores):
         print(f'training percentage: {percentage}')
@@ -592,14 +600,19 @@ def compare_byol_and_ms(testing_flag, batch_size, epoch_number, latent_dim, proj
     # normal byol
     byol_encoder, test_chapman_dataset, train_chapman_dataset, working_directory, path_to_embeddings = autoencoder_main(testing_flag, batch_size, epoch_number, latent_dim, projection_dim)
     byol_metrics, middle_macro, half_micro, mean_macro, std_macro, middle_micro, half_micro, mean_micro, std_micro, X_train, X_test, y_train, y_test = downstream_evaluation(byol_encoder, test_chapman_dataset, train_chapman_dataset)
-    
+    save_name = f'{testing_flag}-normal-{batch_size}-{epoch_number}-{latent_dim}-{projection_dim}-chapman'
+    save_train_test_embeddings(X_train, X_test, y_train, y_test, path_to_embeddings, save_name)
     # byol with ms 
     byol_encoder_ms, test_chapman_dataset, train_chapman_dataset, working_directory, path_to_embeddings = multiple_segment_main(testing_flag, batch_size, epoch_number, latent_dim, projection_dim)
     byol_metrics_ms, middle_macro_ms, half_micro_ms, mean_macro_ms, std_macro_ms, middle_micro_ms, half_micro_ms, mean_micro_ms, std_micro_ms, X_train, X_test, y_train, y_test = downstream_evaluation_ms(byol_encoder_ms, test_chapman_dataset, train_chapman_dataset)
+    save_name = f'{testing_flag}-ms-{batch_size}-{epoch_number}-{latent_dim}-{projection_dim}-chapman'
+    save_train_test_embeddings(X_train, X_test, y_train, y_test, path_to_embeddings, save_name)
+    
     print(f'byol metrics:')
     print(f"    AUC OVR: {byol_metrics['auc_ovr']}")
     print(f"    AUC OVO: {byol_metrics['auc_ovo']}")
     print_auc_intervals(middle_macro, half_micro, mean_macro, std_macro, middle_micro, half_micro, mean_micro, std_micro)
+    
     
     print(f'byol ms metrics:')
     print(f"    AUC OVR: {byol_metrics_ms['auc_ovr']}")
@@ -620,6 +633,7 @@ def save_train_test_embeddings(X_train, X_test, y_train, y_test, path_to_embeddi
     print(f'Starting to save train test embeddings: {start_time_str}')
     save_name = f'{save_name}-{start_time_str}.pickle'
     save_path = os.path.join(path_to_embeddings, save_name)
+    print(f'path to embeddings: {save_path}')
     with open(save_path, 'wb') as f:
         data = [X_train, X_test, y_train, y_test]
         pickle.dump(data, f)
@@ -627,8 +641,8 @@ def save_train_test_embeddings(X_train, X_test, y_train, y_test, path_to_embeddi
 
 if __name__ == '__main__':
     # parse arguments - latent dim is for autoencoder dimension, projection dim is for BYOL mlp projection 
-    # testing_flag, batch_size, epoch_number, latent_dim, projection_dim, plotting_flag, ms_flag, comparing_flag = parse_arguments(sys.argv)
-    testing_flag, batch_size, epoch_number, latent_dim, projection_dim, plotting_flag, ms_flag, comparing_flag = True, 512, 1, 128, 64, False, False, False
+    testing_flag, batch_size, epoch_number, latent_dim, projection_dim, plotting_flag, ms_flag, comparing_flag = parse_arguments(sys.argv)
+    # testing_flag, batch_size, epoch_number, latent_dim, projection_dim, plotting_flag, ms_flag, comparing_flag = True, 512, 1, 128, 64, False, False, False
     start_time = datetime.datetime.now()
     start_time_str = start_time.strftime("%Y%m%d-%H%M%S")
     print(start_time_str)

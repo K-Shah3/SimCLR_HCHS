@@ -258,6 +258,18 @@ def cnn_disease_confidence_levels(testing_flag, dataset_name, disease, bs, lr, m
         my_nn = actigraphy_utilities.Net(input_x, input_y, testing_flag=testing_flag, dataset_name=dataset_name, disease=disease)
         model = actigraphy_utilities.fit_model(my_nn, train_loader, val_loader, lr, max_epochs=max_epochs)
 
+    save_model_directory = os.path.join("save_models", "cnn")
+    try:
+        if not os.path.exists(save_model_directory):
+            os.makedirs(save_model_directory)
+    except OSError as err:
+        print(err)
+
+    start_time = datetime.datetime.now()
+    start_time_str = start_time.strftime("%Y%m%d-%H%M%S")
+    save_path = os.path.join(save_model_directory, f'{start_time_str}-{testing_flag}-{bs}-{dataset_name}-{disease}.h5')
+    torch.save(model, save_path)
+
     # downstream 
     val_loader = DataLoader(
         test_dataset, 

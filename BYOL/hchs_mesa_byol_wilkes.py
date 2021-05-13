@@ -498,6 +498,37 @@ if __name__ == "__main__":
 
         print(save_name)
 
+    elif main_type == 'compare':
+        print('--------------normal----------------')
+        save_name = f'{start_time_str}-{testing_flag}-{batch_size}-{epoch_number}-{latent_dim}-{projection_dim}-{hchs_or_mesa}-{disease}'
+        byol_encoder, test_dataset, train_dataset, working_directory, path_to_embeddings = byol_main(testing_flag, hchs_or_mesa, batch_size, epoch_number, latent_dim, projection_dim, disease)
+        metrics, middle_macro, half_macro, mean_macro, std_macro, middle_micro, half_micro, mean_micro, std_micro = downstream_evaluation(byol_encoder, test_dataset, train_dataset, path_to_embeddings, save_name)
+        print(f'{disease}: {metrics}')
+        print_confidence_f1_scores(middle_macro, half_macro, mean_macro, std_macro, middle_micro, half_micro, mean_micro, std_micro)
+
+        save_name = f'{save_name}-metrics.pickle'
+        save_path = os.path.join(working_directory, save_name)
+
+        with open(save_path, 'wb') as f:
+            pickle.dump(metrics, f)
+
+        print(save_name)
+
+        print('--------------ms----------------')
+        save_name = f'{start_time_str}-{testing_flag}-{batch_size}-{epoch_number}-{latent_dim}-{projection_dim}-{segment_number}-{hchs_or_mesa}-{disease}-ms'
+        byol_encoder, test_dataset, train_dataset, working_directory, path_to_embeddings = multiple_segment_main(testing_flag, hchs_or_mesa, batch_size, epoch_number, latent_dim, projection_dim, disease, segment_number)
+        metrics, middle_macro, half_macro, mean_macro, std_macro, middle_micro, half_micro, mean_micro, std_micro = downstream_evaluation_ms(byol_encoder, test_dataset, train_dataset, segment_number, path_to_embeddings, save_name)
+        print(f'{disease}: {metrics}')
+        print_confidence_f1_scores(middle_macro, half_macro, mean_macro, std_macro, middle_micro, half_micro, mean_micro, std_micro)
+
+        save_name = f'{save_name}-metrics.pickle'
+        save_path = os.path.join(working_directory, save_name)
+
+        with open(save_path, 'wb') as f:
+            pickle.dump(metrics, f)
+
+        print(save_name)
+
     else:
         assert main_type == 'combined'
         byol_encoder, mesa_working_directory, hchs_working_directory, average_length, path_to_embeddings = combined_main(testing_flag, batch_size, epoch_number, latent_dim, projection_dim)
